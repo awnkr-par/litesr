@@ -31,8 +31,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
         run: |
-          gh release view $env:TAG --repo $env:GITHUB_REPOSITORY *> $null
-          if ($LASTEXITCODE -eq 0) { "exists=true" >> $env:GITHUB_OUTPUT } else { "exists=false" >> $env:GITHUB_OUTPUT }
+          $tags = gh release list --repo $env:GITHUB_REPOSITORY --limit 100 --json tagName --jq '.[].tagName'
+          if ($LASTEXITCODE -ne 0) { throw 'Could not list releases' }
+          if ($tags -contains $env:TAG) { "exists=true" >> $env:GITHUB_OUTPUT } else { "exists=false" >> $env:GITHUB_OUTPUT }
       - name: Build Windows application
         if: steps.existing.outputs.exists == 'false'
         run: |
