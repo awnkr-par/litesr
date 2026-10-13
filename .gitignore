@@ -1,0 +1,11 @@
+/build/
+/out/
+/.vs/
+*.mp4
+*.mkv
+*.flv
+*.exe
+*.pdb
+*.obj
+*.ilk
+.DS_Store
