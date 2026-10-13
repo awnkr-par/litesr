@@ -95,7 +95,7 @@ int wmain() {
 
     wchar_t exePath[MAX_PATH]{}; GetModuleFileNameW(nullptr, exePath, MAX_PATH);
     std::wstring localExe(exePath); localExe = localExe.substr(0, localExe.find_last_of(L"\\/") + 1) + L"ffmpeg\\bin\\ffmpeg.exe";
-    if (GetFileAttributesW(localExe.c_str()) == INVALID_FILE_ATTRIBUTES) { std::wcerr << L"Bundled FFmpeg not found. Reinstall LiteSR.\\n"; return 1; }
+    if (GetFileAttributesW(localExe.c_str()) == INVALID_FILE_ATTRIBUTES) { std::wcerr << L"Bundled FFmpeg not found. Reinstall LiteSR.\n"; return 1; }
     Args ff = {localExe, L"-hide_banner", L"-loglevel", L"warning",
                L"-stats", L"-f", L"gdigrab", L"-framerate", std::to_wstring(fps),
                L"-i", L"desktop", L"-an",

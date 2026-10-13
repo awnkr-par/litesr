@@ -39,7 +39,7 @@ static void start(){
  wchar_t exePath[MAX_PATH]{}; GetModuleFileNameW(nullptr,exePath,MAX_PATH);
  std::wstring localExe(exePath); localExe=localExe.substr(0,localExe.find_last_of(L"\\/")+1)+L"ffmpeg\\bin\\ffmpeg.exe";
  if(GetFileAttributesW(localExe.c_str())==INVALID_FILE_ATTRIBUTES){status(L"Bundled FFmpeg missing. Reinstall LiteSR.");return;}
- std::wstring cmd=L"\\\""+localExe+L"\\\" -hide_banner -loglevel error -f gdigrab -framerate 30 -i desktop -an -vf scale=1280:720,format=nv12 ";
+ std::wstring cmd=L"\""+localExe+L"\" -hide_banner -loglevel error -f gdigrab -framerate 30 -i desktop -an -vf scale=1280:720,format=nv12 ";
  cmd+=cpu?L"-c:v libx264 -preset ultrafast ":L"-c:v h264_qsv -preset veryfast ";
  cmd+=L"-b:v 3000k -g 60 ";
  cmd+=streaming?L"-f flv ":L"-y -movflags +faststart ";
