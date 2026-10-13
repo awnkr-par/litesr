@@ -21,3 +21,6 @@ Non-secret settings are stored at `%APPDATA%\\LiteSR\\settings.ini`. Stream keys
 C++17 and Win32, CMake 3.20+, VS2022. `cmake -S . -B build -A x64`, then `cmake --build build --config Release`.
 
 **Status:** early alpha. Desktop capture uses FFmpeg gdigrab and can cause major FPS drops. Future work includes WASAPI audio capture, stream connection diagnostics, log viewer, a Direct3D capture pipeline, scene/compositing support, and independently signed updates.
+
+## Capture selection
+Choose Monitor or App window, then pick the displayed source. Refresh to rediscover windows. The selected source applies to recording and streaming. Minimized or protected applications may not capture properly; window capture uses FFmpeg gdigrab HWND selection.
