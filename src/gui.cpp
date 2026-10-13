@@ -36,7 +36,10 @@ static void start(){
  if(streaming && target.rfind(L"rtmp://",0)!=0 && target.rfind(L"rtmps://",0)!=0){
   MessageBoxW(window_,L"Stream URL must start with rtmp:// or rtmps://",L"LiteSR",MB_ICONERROR);return;
  }
- std::wstring cmd=L"ffmpeg.exe -hide_banner -loglevel error -f gdigrab -framerate 30 -i desktop -an -vf scale=1280:720,format=nv12 ";
+ wchar_t exePath[MAX_PATH]{}; GetModuleFileNameW(nullptr,exePath,MAX_PATH);
+ std::wstring localExe(exePath); localExe=localExe.substr(0,localExe.find_last_of(L"\\/")+1)+L"ffmpeg\\bin\\ffmpeg.exe";
+ if(GetFileAttributesW(localExe.c_str())==INVALID_FILE_ATTRIBUTES){status(L"Bundled FFmpeg missing. Reinstall LiteSR.");return;}
+ std::wstring cmd=L"\\\""+localExe+L"\\\" -hide_banner -loglevel error -f gdigrab -framerate 30 -i desktop -an -vf scale=1280:720,format=nv12 ";
  cmd+=cpu?L"-c:v libx264 -preset ultrafast ":L"-c:v h264_qsv -preset veryfast ";
  cmd+=L"-b:v 3000k -g 60 ";
  cmd+=streaming?L"-f flv ":L"-y -movflags +faststart ";
@@ -50,7 +53,7 @@ static void start(){
  std::vector<wchar_t> args(cmd.begin(),cmd.end());args.push_back(0);
  BOOL ok=CreateProcessW(nullptr,args.data(),nullptr,nullptr,TRUE,CREATE_NO_WINDOW,nullptr,nullptr,&startup,&process_);
  CloseHandle(read);
- if(!ok){CloseHandle(write);process_={};status(L"Cannot start FFmpeg. Install it and add it to PATH.");return;}
+ if(!ok){CloseHandle(write);process_={};status(L"Could not launch bundled FFmpeg.");return;}
  input_=write;status(streaming?L"Streaming...":L"Recording...");refresh();
 }
 static LRESULT CALLBACK proc(HWND h,UINT m,WPARAM w,LPARAM l){

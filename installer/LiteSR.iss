@@ -1,6 +1,6 @@
 #define AppVersion GetEnv("LITESR_VERSION")
 #if AppVersion == ""
- #define AppVersion "0.2.0-alpha.1"
+ #define AppVersion "0.2.0-alpha.2"
 #endif
 [Setup]
 AppId={{F7417356-74F3-4EB1-BE66-21234A330226}
@@ -21,6 +21,7 @@ WizardStyle=modern
 Source: "..\build\Release\LiteSR.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\build\Release\litesr.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\vendor\ffmpeg\*"; DestDir: "{app}\ffmpeg"; Flags: ignoreversion recursesubdirs createallsubdirs
 [Icons]
 Name: "{group}\LiteSR"; Filename: "{app}\LiteSR.exe"
 Name: "{autodesktop}\LiteSR"; Filename: "{app}\LiteSR.exe"; Tasks: desktopicon

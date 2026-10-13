@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Version tag (example v0.2.0-alpha.1)
+        description: Version tag (example v0.2.0-alpha.2)
         required: true
-        default: v0.2.0-alpha.1
+        default: v0.2.0-alpha.2
 permissions:
   contents: write
 jobs:
@@ -20,7 +20,7 @@ jobs:
         id: version
         shell: pwsh
         run: |
-          if ($env:GITHUB_REF_TYPE -eq 'tag') { $tag = $env:GITHUB_REF_NAME } elseif ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') { $tag = '${{ inputs.version }}' } else { $tag = 'v0.2.0-alpha.1' }
+          if ($env:GITHUB_REF_TYPE -eq 'tag') { $tag = $env:GITHUB_REF_NAME } elseif ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') { $tag = '${{ inputs.version }}' } else { $tag = 'v0.2.0-alpha.2' }
           if ($tag -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$') { throw "Invalid version" }
           "tag=$tag" >> $env:GITHUB_OUTPUT
           "number=$($tag.Substring(1))" >> $env:GITHUB_OUTPUT
@@ -39,6 +39,22 @@ jobs:
         run: |
           cmake -S . -B build -A x64
           cmake --build build --config Release
+      - name: Bundle FFmpeg runtime
+        if: steps.existing.outputs.exists == 'false'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $url = 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip'
+          Invoke-WebRequest -Uri $url -OutFile ffmpeg-package.zip
+          Expand-Archive ffmpeg-package.zip -DestinationPath ffmpeg-extracted
+          $root = Get-ChildItem ffmpeg-extracted -Directory | Select-Object -First 1
+          if (-not $root) { throw 'FFmpeg archive missing directory' }
+          New-Item -ItemType Directory -Force vendor/ffmpeg | Out-Null
+          Copy-Item "$($root.FullName)/*" vendor/ffmpeg -Recurse -Force
+          if (-not (Test-Path vendor/ffmpeg/bin/ffmpeg.exe)) { throw 'FFmpeg binary missing' }
+          & vendor/ffmpeg/bin/ffmpeg.exe -hide_banner -version
+          if ($LASTEXITCODE -ne 0) { throw 'Bundled FFmpeg failed validation' }
+          Get-FileHash ffmpeg-package.zip -Algorithm SHA256 | Format-List
       - name: Prepare portable ZIP
         if: steps.existing.outputs.exists == 'false'
         shell: pwsh
@@ -47,6 +63,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force dist/LiteSR | Out-Null
           Copy-Item build/Release/LiteSR.exe,build/Release/litesr.exe,README.md dist/LiteSR/
+          Copy-Item vendor/ffmpeg dist/LiteSR/ffmpeg -Recurse -Force
           Compress-Archive dist/LiteSR "dist/LiteSR-$env:VERSION-Portable-x64.zip"
       - name: Install Inno Setup
         if: steps.existing.outputs.exists == 'false'

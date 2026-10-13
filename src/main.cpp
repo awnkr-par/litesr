@@ -93,7 +93,10 @@ int wmain() {
         std::wcerr << L"Width and height must be even.\n"; return 2;
     }
 
-    Args ff = {L"ffmpeg.exe", L"-hide_banner", L"-loglevel", L"warning",
+    wchar_t exePath[MAX_PATH]{}; GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+    std::wstring localExe(exePath); localExe = localExe.substr(0, localExe.find_last_of(L"\\/") + 1) + L"ffmpeg\\bin\\ffmpeg.exe";
+    if (GetFileAttributesW(localExe.c_str()) == INVALID_FILE_ATTRIBUTES) { std::wcerr << L"Bundled FFmpeg not found. Reinstall LiteSR.\\n"; return 1; }
+    Args ff = {localExe, L"-hide_banner", L"-loglevel", L"warning",
                L"-stats", L"-f", L"gdigrab", L"-framerate", std::to_wstring(fps),
                L"-i", L"desktop", L"-an",
                L"-vf", L"scale=" + std::to_wstring(width) + L":" + std::to_wstring(height) + L",format=nv12"};
@@ -132,7 +135,7 @@ int wmain() {
     if (!CreateProcessW(nullptr, writable.data(), nullptr, nullptr, FALSE, 0,
                         nullptr, nullptr, &start, &proc)) {
         std::wcerr << L"Could not start FFmpeg (Windows error " << GetLastError()
-                   << L"). Install FFmpeg and add its bin folder to PATH.\n";
+                   << L"). Verify LiteSR installation.\n";
         return 1;
     }
     WaitForSingleObject(proc.hProcess, INFINITE);
