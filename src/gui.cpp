@@ -12,7 +12,9 @@ static std::vector<Capture> captures;
 static HWND root{}, mode{}, service{}, server{}, key{}, fileName{}, resolution{}, fps{}, bitrate{}, encoder{}, audio{}, updates{}, state{}, startButton{}, stopButton{};
 static PROCESS_INFORMATION process{};
 static HANDLE stdinPipe{};
-static const wchar_t* buildVersion=L"0.2.0-alpha.7";
+static HANDLE logHandle{};
+static std::wstring logPath;
+static const wchar_t* buildVersion=L"0.2.0-alpha.8";
 static std::wstring get(HWND h){int n=GetWindowTextLengthW(h);std::wstring s(n+1,L'\0');GetWindowTextW(h,s.data(),n+1);s.resize(n);return s;}
 static HWND add(const wchar_t* cls,const wchar_t* text,DWORD style,int x,int y,int w,int h,int id=0){
  HWND v=CreateWindowExW(0,cls,text,WS_CHILD|WS_VISIBLE|style,x,y,w,h,root,(HMENU)(INT_PTR)id,GetModuleHandleW(nullptr),nullptr);
@@ -58,6 +60,7 @@ static void refresh(){
   DWORD exitCode=0;GetExitCodeProcess(process.hProcess,&exitCode);
   CloseHandle(process.hThread);CloseHandle(process.hProcess);process={};
   if(stdinPipe){CloseHandle(stdinPipe);stdinPipe=nullptr;}
+  if(logHandle){CloseHandle(logHandle);logHandle=nullptr;}
   setStatus(exitCode==0?L"Stopped normally.":L"FFmpeg stopped with an error. Check encoder or stream settings.");
  }
  bool busy=process.hProcess!=nullptr;
@@ -141,24 +144,30 @@ static void start(){
   args.insert(args.end(),{L"-i",handle});
  }
  // Video capture is operational. Audio capture is not advertised until device enumeration is implemented.
- args.insert(args.end(),{L"-an",L"-vf",L"scale="+std::to_wstring(widths[r])+L":"+std::to_wstring(heights[r])+L",format=nv12"});
+ if(isStreaming){args.insert(args.end(),{L"-f",L"lavfi",L"-i",L"anullsrc=channel_layout=stereo:sample_rate=44100",L"-map",L"0:v:0",L"-map",L"1:a:0"});}
+ else args.push_back(L"-an");
+ args.insert(args.end(),{L"-vf",L"scale="+std::to_wstring(widths[r])+L":"+std::to_wstring(heights[r])+L",format=nv12"});
  if(selection(encoder)==0)args.insert(args.end(),{L"-c:v",L"h264_qsv",L"-preset",L"veryfast"});
  else args.insert(args.end(),{L"-c:v",L"libx264",L"-preset",L"ultrafast",L"-tune",L"zerolatency"});
  args.insert(args.end(),{L"-b:v",std::to_wstring(rate)+L"k",L"-maxrate",std::to_wstring(rate)+L"k",
   L"-bufsize",std::to_wstring(rate*2)+L"k",L"-g",std::to_wstring(fr*2)});
- if(isStreaming)args.insert(args.end(),{L"-f",L"flv",dest});
+ if(isStreaming)args.insert(args.end(),{L"-c:a",L"aac",L"-b:a",L"128k",L"-ar",L"44100",L"-shortest",L"-f",L"flv",dest});
  else args.insert(args.end(),{L"-y",L"-movflags",L"+faststart",dest});
  std::wstring cmd;
  for(const auto& a:args){if(!cmd.empty())cmd+=L" ";cmd+=quote(a);}
  SECURITY_ATTRIBUTES sa={sizeof(sa),nullptr,TRUE};HANDLE read{},write{};
  if(!CreatePipe(&read,&write,&sa,0)){setStatus(L"Could not create FFmpeg stdin.");return;}
  SetHandleInformation(write,HANDLE_FLAG_INHERIT,0);
+ logPath=cfg();logPath=logPath.substr(0,logPath.find_last_of(L"\\/")+1)+L"ffmpeg.log";
+ SECURITY_ATTRIBUTES logSecurity{sizeof(logSecurity),nullptr,TRUE};
+ logHandle=CreateFileW(logPath.c_str(),GENERIC_WRITE,FILE_SHARE_READ|FILE_SHARE_WRITE,&logSecurity,CREATE_ALWAYS,FILE_ATTRIBUTE_NORMAL,nullptr);
+ if(logHandle==INVALID_HANDLE_VALUE){logHandle=nullptr;CloseHandle(read);CloseHandle(write);setStatus(L"Cannot create diagnostic log.");return;}
  STARTUPINFOW si{};si.cb=sizeof(si);si.dwFlags=STARTF_USESTDHANDLES;si.hStdInput=read;
- si.hStdOutput=GetStdHandle(STD_OUTPUT_HANDLE);si.hStdError=GetStdHandle(STD_ERROR_HANDLE);
+ si.hStdOutput=logHandle;si.hStdError=logHandle;
  std::vector<wchar_t> buffer(cmd.begin(),cmd.end());buffer.push_back(0);
  BOOL ok=CreateProcessW(ff.c_str(),buffer.data(),nullptr,nullptr,TRUE,CREATE_NO_WINDOW,nullptr,nullptr,&si,&process);
  CloseHandle(read);
- if(!ok){CloseHandle(write);process={};setStatus(L"Failed launching FFmpeg.");return;}
+ if(!ok){CloseHandle(write);if(logHandle){CloseHandle(logHandle);logHandle=nullptr;}process={};setStatus(L"Failed launching FFmpeg.");return;}
  stdinPipe=write;save();setStatus(isStreaming?L"Stream launched. Confirm live signal on platform.":L"Recording started.");refresh();
 }
 static void checkUpdates(bool manual){
@@ -207,6 +216,7 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   add(L"STATIC",L"Updates",0,20,600,90,22);
   updates=combo(132,595,200,{L"Stable",L"Beta / Alpha"},1);
   add(L"BUTTON",L"Check updates",BS_PUSHBUTTON,350,595,182,28,3);
+  add(L"BUTTON",L"Open stream log",BS_PUSHBUTTON,350,630,182,28,5);
   add(L"STATIC",L"Do not share stream keys. GPU performance depends on hardware/driver.",0,20,639,525,25);
   select(mode,loadIndex(L"mode",0,2));select(service,loadIndex(L"service",0,3));
   serviceChanged();
@@ -222,6 +232,7 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   if(LOWORD(w)==2)stop();
   if(LOWORD(w)==3)checkUpdates(true);
   if(LOWORD(w)==4||((HWND)l==sourceMode&&HIWORD(w)==CBN_SELCHANGE))listCapture();
+  if(LOWORD(w)==5){std::wstring p=logPath.empty()?cfg().substr(0,cfg().find_last_of(L"\\/")+1)+L"ffmpeg.log":logPath;ShellExecuteW(h,L"open",p.c_str(),nullptr,nullptr,SW_SHOWNORMAL);}
   if((HWND)l==service&&HIWORD(w)==CBN_SELCHANGE)serviceChanged();
   return 0;
  case WM_TIMER:
@@ -237,7 +248,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,LPWSTR,int show){
  WNDCLASSW wc{};wc.hInstance=instance;wc.lpfnWndProc=wnd;wc.lpszClassName=L"LiteSRMain";
  wc.hbrBackground=(HBRUSH)(COLOR_WINDOW+1);wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);
  RegisterClassW(&wc);
- HWND h=CreateWindowExW(0,L"LiteSRMain",L"LiteSR v0.2.0-alpha.7",WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX,
+ HWND h=CreateWindowExW(0,L"LiteSRMain",L"LiteSR v0.2.0-alpha.8",WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX,
  CW_USEDEFAULT,CW_USEDEFAULT,562,725,nullptr,nullptr,instance,nullptr);
  ShowWindow(h,show);MSG msg;
  while(GetMessageW(&msg,nullptr,0,0)>0){TranslateMessage(&msg);DispatchMessageW(&msg);}
