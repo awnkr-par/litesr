@@ -24,3 +24,6 @@ C++17 and Win32, CMake 3.20+, VS2022. `cmake -S . -B build -A x64`, then `cmake 
 
 ## Capture selection
 Choose Monitor or App window, then pick the displayed source. Refresh to rediscover windows. The selected source applies to recording and streaming. Minimized or protected applications may not capture properly; window capture uses FFmpeg gdigrab HWND selection.
+
+## Streaming troubleshooting (alpha.8)
+Streaming now includes a silent stereo AAC track (real microphone and game audio are not yet implemented). FFmpeg writes diagnostics to `%APPDATA%\\LiteSR\\ffmpeg.log`. Click **Open stream log** after a failed launch to see why it stopped. Do not share stream keys or command lines. If QSV fails, try CPU x264 at 480p/30FPS for a diagnostic test.
