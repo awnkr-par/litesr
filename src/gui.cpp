@@ -64,8 +64,8 @@ static void checkUpdates(bool manual){
   if(manual)MessageBoxW(window_,L"Updater missing from this installation.",L"LiteSR",MB_ICONWARNING);
   return;
  }
- std::wstring command=L"powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File \\""+script+
-  L"\\" -Channel "+(SendMessageW(channel_,CB_GETCURSEL,0,0)==0?L"stable":L"beta")+
+ std::wstring command=L"powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File \""+script+
+  L"\" -Channel "+(SendMessageW(channel_,CB_GETCURSEL,0,0)==0?L"stable":L"beta")+
   L" -ParentPid "+std::to_wstring(GetCurrentProcessId());
  if(manual)command+=L" -Manual";
  STARTUPINFOW si{};si.cb=sizeof(si);PROCESS_INFORMATION pi{};
