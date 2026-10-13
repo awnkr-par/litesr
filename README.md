@@ -5,7 +5,7 @@ LiteSR is an experimental Windows desktop recorder and RTMP/RTMPS streamer for o
 ## Install
 Download the newest [Windows installer](https://github.com/awnkr-par/litesr/releases). FFmpeg is **bundled**. Start Menu shortcuts and uninstall support are included. Portable ZIP includes FFmpeg and updater too.
 
-## Updates (alpha.4)
+## Updates (alpha.5)
 LiteSR checks for new releases after launch and can install updates from within the app. Select **Stable** or **Beta/Alpha** in the Updates menu. On startup it only prompts when a newer version is available. **Check releases** manually checks now. The updater asks permission to download and install; it does **not** silently install upgrades.
 
 The updater uses the official GitHub Releases API, downloads the Inno Setup installer and its SHA256SUMS.txt from HTTPS GitHub URLs, and verifies the installer SHA-256 before running it. It waits for LiteSR to exit, then runs the installer and displays the result. Stable ignores prereleases; Beta includes them. For a safer production channel, future releases should be code-signed and supply independently signed update manifests (checksums from the same compromised release are not a signature).
