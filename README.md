@@ -1,30 +1,23 @@
 # LiteSR
 
-LiteSR is an experimental Windows desktop recorder and RTMP/RTMPS streamer for older PCs, including Intel HD Graphics 4400.
+LiteSR is an experimental Windows x64 screen recorder and RTMP/RTMPS streamer targeting older computers. The installer and portable ZIP bundle FFmpeg.
 
-## Install
-Download the newest [Windows installer](https://github.com/awnkr-par/litesr/releases). FFmpeg is **bundled**. Start Menu shortcuts and uninstall support are included. Portable ZIP includes FFmpeg and updater too.
+## Streaming setup
 
-## Updates (alpha.5)
-LiteSR checks for new releases after launch and can install updates from within the app. Select **Stable** or **Beta/Alpha** in the Updates menu. On startup it only prompts when a newer version is available. **Check releases** manually checks now. The updater asks permission to download and install; it does **not** silently install upgrades.
+Open LiteSR, select **Live stream**, then select YouTube, Twitch, or Custom. The server URL is the ingest endpoint, while the stream key is the secret provided by your broadcasting platform. YouTube defaults to `rtmps://a.rtmp.youtube.com/live2`; Twitch defaults to `rtmp://live.twitch.tv/app`. Always confirm the service endpoint in your account dashboard. Never share stream keys. The key is kept in memory only (not saved in settings), but the current FFmpeg subprocess command line can expose it to local process inspection.
 
-The updater uses the official GitHub Releases API, downloads the Inno Setup installer and its SHA256SUMS.txt from HTTPS GitHub URLs, and verifies the installer SHA-256 before running it. It waits for LiteSR to exit, then runs the installer and displays the result. Stable ignores prereleases; Beta includes them. For a safer production channel, future releases should be code-signed and supply independently signed update manifests (checksums from the same compromised release are not a signature).
+Use 720p/30FPS/2500-3500Kbps for the first Intel HD 4400 trial, then test 480p if performance suffers. You can choose 480p/720p/1080p, 30/60 FPS, bitrate 300-50000 Kbps, Intel QSV or CPU x264. These options do not guarantee your PC can sustain the chosen quality.
 
-**Important:** The updater uses the built-in Windows PowerShell and executes the update script shipped with LiteSR. It does not download and execute arbitrary scripts from the web. The installer is currently unsigned. Only use releases from this project's official repository.
+## Recording
 
-## Known limitations
-- Video-only FFmpeg gdigrab desktop capture at fixed 720p/30 FPS in the GUI. CLI offers customizable settings.
-- No audio capture, game capture, scene system, GPU-native capture, or performance guarantee yet.
-- Quick Sync may fail on some Intel HD 4400 drivers; CPU fallback can lower Minecraft FPS.
-- No silent auto-install; user consent is required. Auto-update has not been tested on the target PC.
-- To update, stop any recording/stream; close LiteSR after approving the update.
-- Portable users can update with the installer, which installs LiteSR into the user profile rather than overwriting the portable folder.
+Select **Record to MP4** and choose an output filename. End with **Stop** to finalize video safely. **Audio is not available yet**; the audio selector explicitly shows this rather than claiming unsupported microphone/system capture. Recording and streaming simultaneously, game-specific capture, and scene overlays are also not yet implemented.
 
-## Build
-On Windows, with CMake 3.20+ and Visual Studio 2022 C++ tools:
-```powershell
-cmake -S . -B build -A x64
-cmake --build build --config Release
-```
+## Settings and updates
 
-GitHub Actions builds versioned installers and ZIPs and fetches the FFmpeg essentials distribution from gyan.dev. Check released `SHA256SUMS.txt` when downloading files manually.
+Non-secret settings are stored at `%APPDATA%\\LiteSR\\settings.ini`. Stream keys are not persisted. Stable and Beta/Alpha update checking is built in; updater verifies release installer SHA256 and asks before installing. GitHub builds are unsigned. The update flow still needs testing on real Windows hardware.
+
+## Development
+
+C++17 and Win32, CMake 3.20+, VS2022. `cmake -S . -B build -A x64`, then `cmake --build build --config Release`.
+
+**Status:** early alpha. Desktop capture uses FFmpeg gdigrab and can cause major FPS drops. Future work includes WASAPI audio capture, stream connection diagnostics, log viewer, a Direct3D capture pipeline, scene/compositing support, and independently signed updates.
