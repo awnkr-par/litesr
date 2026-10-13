@@ -1,6 +1,7 @@
 name: Windows installer release
 on:
   push:
+    branches: [main]
     tags: ['v*']
   workflow_dispatch:
     inputs:
@@ -19,15 +20,26 @@ jobs:
         id: version
         shell: pwsh
         run: |
-          if ($env:GITHUB_REF_TYPE -eq 'tag') { $tag = $env:GITHUB_REF_NAME } else { $tag = '${{ inputs.version }}' }
+          if ($env:GITHUB_REF_TYPE -eq 'tag') { $tag = $env:GITHUB_REF_NAME } elseif ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') { $tag = '${{ inputs.version }}' } else { $tag = 'v0.2.0-alpha.1' }
           if ($tag -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$') { throw "Invalid version" }
           "tag=$tag" >> $env:GITHUB_OUTPUT
           "number=$($tag.Substring(1))" >> $env:GITHUB_OUTPUT
+      - name: Check existing release
+        id: existing
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          gh release view $env:TAG --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) { "exists=true" >> $env:GITHUB_OUTPUT } else { "exists=false" >> $env:GITHUB_OUTPUT }
       - name: Build Windows application
+        if: steps.existing.outputs.exists == 'false'
         run: |
           cmake -S . -B build -A x64
           cmake --build build --config Release
       - name: Prepare portable ZIP
+        if: steps.existing.outputs.exists == 'false'
         shell: pwsh
         env:
           VERSION: ${{ steps.version.outputs.number }}
@@ -36,8 +48,10 @@ jobs:
           Copy-Item build/Release/LiteSR.exe,build/Release/litesr.exe,README.md dist/LiteSR/
           Compress-Archive dist/LiteSR "dist/LiteSR-$env:VERSION-Portable-x64.zip"
       - name: Install Inno Setup
+        if: steps.existing.outputs.exists == 'false'
         run: choco install innosetup --yes --no-progress
       - name: Compile Windows installer
+        if: steps.existing.outputs.exists == 'false'
         shell: pwsh
         env:
           LITESR_VERSION: ${{ steps.version.outputs.number }}
@@ -45,6 +59,7 @@ jobs:
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "installer\LiteSR.iss"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Checksums
+        if: steps.existing.outputs.exists == 'false'
         shell: pwsh
         run: |
           Get-ChildItem dist -File | ForEach-Object {
@@ -52,6 +67,7 @@ jobs:
             "$hash *$($_.Name)"
           } | Set-Content dist/SHA256SUMS.txt
       - name: Publish GitHub Release
+        if: steps.existing.outputs.exists == 'false'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
