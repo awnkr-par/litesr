@@ -1,6 +1,6 @@
 #define AppVersion GetEnv("LITESR_VERSION")
 #if AppVersion == ""
- #define AppVersion "0.2.0-alpha.7"
+ #define AppVersion "0.2.0-alpha.8"
 #endif
 [Setup]
 AppId={{F7417356-74F3-4EB1-BE66-21234A330226}
