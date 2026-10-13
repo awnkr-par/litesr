@@ -56,6 +56,24 @@ static void start(){
  if(!ok){CloseHandle(write);process_={};status(L"Could not launch bundled FFmpeg.");return;}
  input_=write;status(streaming?L"Streaming...":L"Recording...");refresh();
 }
+static void checkUpdates(bool manual){
+ wchar_t module[MAX_PATH]{};GetModuleFileNameW(nullptr,module,MAX_PATH);
+ std::wstring location(module);location=location.substr(0,location.find_last_of(L"\\/")+1);
+ std::wstring script=location+L"updater\\update.ps1";
+ if(GetFileAttributesW(script.c_str())==INVALID_FILE_ATTRIBUTES){
+  if(manual)MessageBoxW(window_,L"Updater missing from this installation.",L"LiteSR",MB_ICONWARNING);
+  return;
+ }
+ std::wstring command=L"powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File \\""+script+
+  L"\\" -Channel "+(SendMessageW(channel_,CB_GETCURSEL,0,0)==0?L"stable":L"beta")+
+  L" -ParentPid "+std::to_wstring(GetCurrentProcessId());
+ if(manual)command+=L" -Manual";
+ STARTUPINFOW si{};si.cb=sizeof(si);PROCESS_INFORMATION pi{};
+ std::vector<wchar_t> cmd(command.begin(),command.end());cmd.push_back(0);
+ if(CreateProcessW(nullptr,cmd.data(),nullptr,nullptr,FALSE,CREATE_NO_WINDOW,nullptr,nullptr,&si,&pi)){
+  CloseHandle(pi.hThread);CloseHandle(pi.hProcess);
+ }else if(manual)MessageBoxW(window_,L"Could not start updater.",L"LiteSR",MB_ICONWARNING);
+}
 static LRESULT CALLBACK proc(HWND h,UINT m,WPARAM w,LPARAM l){
  switch(m){
  case WM_CREATE:
@@ -77,7 +95,7 @@ static LRESULT CALLBACK proc(HWND h,UINT m,WPARAM w,LPARAM l){
   url_=add(L"EDIT",L"",WS_BORDER|ES_AUTOHSCROLL,120,191,310,26);
   add(L"BUTTON",L"Start",BS_PUSHBUTTON,22,248,198,36,1);
   add(L"BUTTON",L"Stop",BS_PUSHBUTTON,231,248,198,36,2);
-  state_=add(L"STATIC",L"Ready. Requires ffmpeg.exe on PATH.",0,22,302,415,35);
+  state_=add(L"STATIC",L"Ready. FFmpeg included.",0,22,302,415,35);
   add(L"STATIC",L"Updates",0,22,353,90,20);
   channel_=add(L"COMBOBOX",L"",CBS_DROPDOWNLIST,120,348,180,120);
   SendMessageW(channel_,CB_ADDSTRING,0,(LPARAM)L"Stable releases");
@@ -85,16 +103,13 @@ static LRESULT CALLBACK proc(HWND h,UINT m,WPARAM w,LPARAM l){
   SendMessageW(channel_,CB_SETCURSEL,1,0);
   add(L"BUTTON",L"Check releases",BS_PUSHBUTTON,312,348,117,28,3);
   add(L"STATIC",L"Alpha: no audio or in-game capture yet.",0,22,401,405,24);
-  SetTimer(h,1,500,nullptr);refresh();return 0;
+  SetTimer(h,1,500,nullptr);SetTimer(h,2,3500,nullptr);refresh();return 0;
  case WM_COMMAND:
   if(LOWORD(w)==1)start();
   if(LOWORD(w)==2)stop();
-  if(LOWORD(w)==3)ShellExecuteW(h,L"open",
-   SendMessageW(channel_,CB_GETCURSEL,0,0)==0?
-   L"https://github.com/awnkr-par/litesr/releases/latest":
-   L"https://github.com/awnkr-par/litesr/releases",nullptr,nullptr,SW_SHOWNORMAL);
+  if(LOWORD(w)==3)checkUpdates(true);
   return 0;
- case WM_TIMER:refresh();return 0;
+ case WM_TIMER:if(w==2){KillTimer(h,2);checkUpdates(false);}else refresh();return 0;
  case WM_CLOSE:
   if(process_.hProcess){stop();MessageBoxW(h,L"Finish stopping FFmpeg before exiting.",L"LiteSR",MB_OK);return 0;}
   DestroyWindow(h);return 0;
@@ -106,7 +121,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,LPWSTR,int show){
  WNDCLASSW wc{};wc.hInstance=instance;wc.lpfnWndProc=proc;wc.lpszClassName=L"LiteSRWindow";
  wc.hbrBackground=(HBRUSH)(COLOR_WINDOW+1);wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);
  RegisterClassW(&wc);
- HWND h=CreateWindowExW(0,L"LiteSRWindow",L"LiteSR 0.2 Alpha",WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX,
+ HWND h=CreateWindowExW(0,L"LiteSRWindow",L"LiteSR 0.2 Alpha.4",WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX,
  CW_USEDEFAULT,CW_USEDEFAULT,467,483,nullptr,nullptr,instance,nullptr);
  ShowWindow(h,show);MSG msg;
  while(GetMessageW(&msg,nullptr,0,0)>0){TranslateMessage(&msg);DispatchMessageW(&msg);}
