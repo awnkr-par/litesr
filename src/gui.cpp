@@ -4,10 +4,15 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <cstdint>
+#include <cwchar>
+static HWND sourceMode{},sourceChoice{};
+struct Capture{std::wstring label;RECT bounds{};HWND window{};bool display{};};
+static std::vector<Capture> captures;
 static HWND root{}, mode{}, service{}, server{}, key{}, fileName{}, resolution{}, fps{}, bitrate{}, encoder{}, audio{}, updates{}, state{}, startButton{}, stopButton{};
 static PROCESS_INFORMATION process{};
 static HANDLE stdinPipe{};
-static const wchar_t* buildVersion=L"0.2.0-alpha.6";
+static const wchar_t* buildVersion=L"0.2.0-alpha.7";
 static std::wstring get(HWND h){int n=GetWindowTextLengthW(h);std::wstring s(n+1,L'\0');GetWindowTextW(h,s.data(),n+1);s.resize(n);return s;}
 static HWND add(const wchar_t* cls,const wchar_t* text,DWORD style,int x,int y,int w,int h,int id=0){
  HWND v=CreateWindowExW(0,cls,text,WS_CHILD|WS_VISIBLE|style,x,y,w,h,root,(HMENU)(INT_PTR)id,GetModuleHandleW(nullptr),nullptr);
@@ -70,6 +75,25 @@ static std::wstring quote(const std::wstring& input){
  }
  out.append(slashes*2,L'\\');return out+L"\"";
 }
+static BOOL CALLBACK findDisplay(HMONITOR mon,HDC,LPRECT,LPARAM){
+ MONITORINFOEXW mi{};mi.cbSize=sizeof(mi);if(!GetMonitorInfoW(mon,&mi))return TRUE;
+ auto r=mi.rcMonitor;std::wstring label=mi.szDevice;
+ label+=L" ("+std::to_wstring(r.right-r.left)+L"x"+std::to_wstring(r.bottom-r.top)+L")";
+ captures.push_back({label,r,nullptr,true});return TRUE;
+}
+static BOOL CALLBACK findWindow(HWND win,LPARAM){
+ if(!IsWindowVisible(win)||IsIconic(win)||win==root)return TRUE;
+ wchar_t name[256]{};GetWindowTextW(win,name,256);
+ RECT rect{};if(!name[0]||!GetWindowRect(win,&rect)||rect.right-rect.left<80)return TRUE;
+ captures.push_back({name,rect,win,false});return TRUE;
+}
+static void listCapture(){
+ captures.clear();SendMessageW(sourceChoice,CB_RESETCONTENT,0,0);
+ if(selection(sourceMode)==0)EnumDisplayMonitors(nullptr,nullptr,findDisplay,0);
+ else EnumWindows(findWindow,0);
+ for(const auto& c:captures)SendMessageW(sourceChoice,CB_ADDSTRING,0,(LPARAM)c.label.c_str());
+ if(!captures.empty())select(sourceChoice,0);
+}
 static void serviceChanged(){
  int n=selection(service);
  if(n==0)SetWindowTextW(server,L"rtmps://a.rtmp.youtube.com/live2");
@@ -104,8 +128,18 @@ static void start(){
  }
  std::wstring ff=directory()+L"ffmpeg\\bin\\ffmpeg.exe";
  if(GetFileAttributesW(ff.c_str())==INVALID_FILE_ATTRIBUTES){setStatus(L"FFmpeg not found. Reinstall LiteSR.");return;}
- std::vector<std::wstring> args={ff,L"-hide_banner",L"-loglevel",L"error",L"-f",L"gdigrab",L"-framerate",std::to_wstring(fr),
-  L"-i",L"desktop"};
+ if(selection(sourceChoice)<0||selection(sourceChoice)>=(int)captures.size()){
+  MessageBoxW(root,L"Choose a capture source.",L"LiteSR",MB_OK);return;
+ }
+ auto selected=captures[(size_t)selection(sourceChoice)];
+ std::vector<std::wstring> args={ff,L"-hide_banner",L"-loglevel",L"error",L"-f",L"gdigrab",L"-framerate",std::to_wstring(fr)};
+ if(selected.display){
+  args.insert(args.end(),{L"-offset_x",std::to_wstring(selected.bounds.left),L"-offset_y",std::to_wstring(selected.bounds.top),
+  L"-video_size",std::to_wstring(selected.bounds.right-selected.bounds.left)+L"x"+std::to_wstring(selected.bounds.bottom-selected.bounds.top),L"-i",L"desktop"});
+ }else{
+  wchar_t handle[40]{};swprintf_s(handle,40,L"hwnd=0x%llx",(unsigned long long)(uintptr_t)selected.window);
+  args.insert(args.end(),{L"-i",handle});
+ }
  // Video capture is operational. Audio capture is not advertised until device enumeration is implemented.
  args.insert(args.end(),{L"-an",L"-vf",L"scale="+std::to_wstring(widths[r])+L":"+std::to_wstring(heights[r])+L",format=nv12"});
  if(selection(encoder)==0)args.insert(args.end(),{L"-c:v",L"h264_qsv",L"-preset",L"veryfast"});
@@ -154,22 +188,26 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   key=add(L"EDIT",L"",WS_BORDER|ES_PASSWORD|ES_AUTOHSCROLL,132,168,400,27);
   add(L"STATIC",L"MP4 filename",0,20,213,105,22);
   fileName=add(L"EDIT",L"recording.mp4",WS_BORDER|ES_AUTOHSCROLL,132,208,400,27);
-  add(L"STATIC",L"Output quality",0,20,256,110,22);
-  resolution=combo(132,251,173,{L"480p (854x480)",L"720p (1280x720)",L"1080p (1920x1080)"},1);
-  fps=combo(320,251,95,{L"30 FPS",L"60 FPS"});
-  add(L"STATIC",L"Bitrate Kbps",0,20,299,110,22);
-  bitrate=add(L"EDIT",L"3000",WS_BORDER|ES_NUMBER,132,294,120,27);
-  add(L"STATIC",L"Encoder",0,270,299,70,22);
-  encoder=combo(340,294,192,{L"Intel QSV",L"CPU x264"});
-  add(L"STATIC",L"Audio",0,20,342,110,22);
-  audio=combo(132,337,400,{L"No audio (device capture coming soon)"});
-  startButton=add(L"BUTTON",L"Start",BS_PUSHBUTTON|WS_TABSTOP,20,393,248,42,1);
-  stopButton=add(L"BUTTON",L"Stop",BS_PUSHBUTTON|WS_TABSTOP,283,393,249,42,2);
-  state=add(L"STATIC",L"Ready. FFmpeg included.",0,20,446,520,45);
-  add(L"STATIC",L"Updates",0,20,511,90,22);
-  updates=combo(132,506,200,{L"Stable",L"Beta / Alpha"},1);
-  add(L"BUTTON",L"Check updates",BS_PUSHBUTTON,350,506,182,28,3);
-  add(L"STATIC",L"Do not share stream keys. GPU performance depends on hardware/driver.",0,20,550,525,25);
+  add(L"STATIC",L"Capture source",0,20,256,110,22);
+  sourceMode=combo(132,251,180,{L"Monitor",L"App window"});
+  add(L"BUTTON",L"Refresh",BS_PUSHBUTTON,425,251,107,28,4);
+  sourceChoice=combo(132,289,400,{});
+  add(L"STATIC",L"Output quality",0,20,345,110,22);
+  resolution=combo(132,340,173,{L"480p (854x480)",L"720p (1280x720)",L"1080p (1920x1080)"},1);
+  fps=combo(320,340,95,{L"30 FPS",L"60 FPS"});
+  add(L"STATIC",L"Bitrate Kbps",0,20,388,110,22);
+  bitrate=add(L"EDIT",L"3000",WS_BORDER|ES_NUMBER,132,383,120,27);
+  add(L"STATIC",L"Encoder",0,270,388,70,22);
+  encoder=combo(340,383,192,{L"Intel QSV",L"CPU x264"});
+  add(L"STATIC",L"Audio",0,20,431,110,22);
+  audio=combo(132,426,400,{L"No audio (device capture coming soon)"});
+  startButton=add(L"BUTTON",L"Start",BS_PUSHBUTTON|WS_TABSTOP,20,482,248,42,1);
+  stopButton=add(L"BUTTON",L"Stop",BS_PUSHBUTTON|WS_TABSTOP,283,482,249,42,2);
+  state=add(L"STATIC",L"Ready. FFmpeg included.",0,20,535,520,45);
+  add(L"STATIC",L"Updates",0,20,600,90,22);
+  updates=combo(132,595,200,{L"Stable",L"Beta / Alpha"},1);
+  add(L"BUTTON",L"Check updates",BS_PUSHBUTTON,350,595,182,28,3);
+  add(L"STATIC",L"Do not share stream keys. GPU performance depends on hardware/driver.",0,20,639,525,25);
   select(mode,loadIndex(L"mode",0,2));select(service,loadIndex(L"service",0,3));
   serviceChanged();
   auto savedServer=load(L"server",L"");if(!savedServer.empty())SetWindowTextW(server,savedServer.c_str());
@@ -177,12 +215,13 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   select(resolution,loadIndex(L"resolution",1,3));select(fps,loadIndex(L"fps",0,2));
   SetWindowTextW(bitrate,load(L"bitrate",L"3000").c_str());
   select(encoder,loadIndex(L"encoder",0,2));select(updates,loadIndex(L"channel",1,2));
-  SetTimer(h,1,500,nullptr);SetTimer(h,2,3500,nullptr);refresh();return 0;
+  listCapture();SetTimer(h,1,500,nullptr);SetTimer(h,2,3500,nullptr);refresh();return 0;
  }
  case WM_COMMAND:
   if(LOWORD(w)==1)start();
   if(LOWORD(w)==2)stop();
   if(LOWORD(w)==3)checkUpdates(true);
+  if(LOWORD(w)==4||((HWND)l==sourceMode&&HIWORD(w)==CBN_SELCHANGE))listCapture();
   if((HWND)l==service&&HIWORD(w)==CBN_SELCHANGE)serviceChanged();
   return 0;
  case WM_TIMER:
@@ -198,8 +237,8 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,LPWSTR,int show){
  WNDCLASSW wc{};wc.hInstance=instance;wc.lpfnWndProc=wnd;wc.lpszClassName=L"LiteSRMain";
  wc.hbrBackground=(HBRUSH)(COLOR_WINDOW+1);wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);
  RegisterClassW(&wc);
- HWND h=CreateWindowExW(0,L"LiteSRMain",L"LiteSR v0.2.0-alpha.6",WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX,
- CW_USEDEFAULT,CW_USEDEFAULT,562,635,nullptr,nullptr,instance,nullptr);
+ HWND h=CreateWindowExW(0,L"LiteSRMain",L"LiteSR v0.2.0-alpha.7",WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX,
+ CW_USEDEFAULT,CW_USEDEFAULT,562,725,nullptr,nullptr,instance,nullptr);
  ShowWindow(h,show);MSG msg;
  while(GetMessageW(&msg,nullptr,0,0)>0){TranslateMessage(&msg);DispatchMessageW(&msg);}
  return 0;
