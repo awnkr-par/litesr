@@ -9,7 +9,7 @@ function Notify([string]$message) {
  if ($Manual) { [void][System.Windows.Forms.MessageBox]::Show($message,'LiteSR Updates','OK','Information') }
 }
 try {
- $installed = '0.2.0-alpha.8'
+ $installed = '0.2.0-alpha.9'
  $headers = @{ 'User-Agent' = 'LiteSR-Updater/0.2.0'; 'Accept' = 'application/vnd.github+json' }
  $releases = @(Invoke-RestMethod -Uri 'https://api.github.com/repos/awnkr-par/litesr/releases?per_page=30' -Headers $headers -TimeoutSec 20)
  $eligible = @($releases | Where-Object {
@@ -51,8 +51,13 @@ try {
  $actual = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
  if ($actual -ne $expected) { throw 'Installer checksum mismatch. Update cancelled.' }
  if ($ParentPid -gt 0) {
+   # LiteSR only shuts down after the user explicitly approved this verified update.
+   $settingsDir = Join-Path $env:APPDATA 'LiteSR'
+   New-Item -ItemType Directory -Force -Path $settingsDir | Out-Null
+   $marker = Join-Path $settingsDir 'update-ready.flag'
+   [IO.File]::WriteAllText($marker, 'approved')
    try { Wait-Process -Id $ParentPid -Timeout 300 -ErrorAction Stop }
-   catch { throw 'LiteSR did not close within five minutes. Update cancelled.' }
+   catch { Remove-Item $marker -ErrorAction SilentlyContinue; throw 'LiteSR did not close within five minutes. Update cancelled.' }
  }
  # Preserve user's previous installer choices; Inno Setup replaces app files and keeps uninstall registration.
  $p = Start-Process -FilePath $installer -ArgumentList '/SILENT','/NORESTART','/CLOSEAPPLICATIONS' -PassThru -Wait
