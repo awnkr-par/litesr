@@ -6,6 +6,11 @@
 #include <algorithm>
 #include <cstdint>
 #include <cwchar>
+#include <uxtheme.h>
+#pragma comment(lib,"uxtheme.lib")
+static HBRUSH darkBrush{};
+static COLORREF ink=RGB(230,235,246);
+static COLORREF canvas=RGB(17,22,34);
 static HWND sourceMode{},sourceChoice{};
 struct Capture{std::wstring label;RECT bounds{};HWND window{};bool display{};};
 static std::vector<Capture> captures;
@@ -19,7 +24,9 @@ static const wchar_t* buildVersion=L"0.2.0-alpha.9";
 static std::wstring get(HWND h){int n=GetWindowTextLengthW(h);std::wstring s(n+1,L'\0');GetWindowTextW(h,s.data(),n+1);s.resize(n);return s;}
 static HWND add(const wchar_t* cls,const wchar_t* text,DWORD style,int x,int y,int w,int h,int id=0){
  HWND v=CreateWindowExW(0,cls,text,WS_CHILD|WS_VISIBLE|style,x,y,w,h,root,(HMENU)(INT_PTR)id,GetModuleHandleW(nullptr),nullptr);
- SendMessageW(v,WM_SETFONT,(WPARAM)GetStockObject(DEFAULT_GUI_FONT),TRUE);return v;
+ SendMessageW(v,WM_SETFONT,(WPARAM)GetStockObject(DEFAULT_GUI_FONT),TRUE);
+ if(wcscmp(cls,L"COMBOBOX")==0||wcscmp(cls,L"EDIT")==0||wcscmp(cls,L"BUTTON")==0)SetWindowTheme(v,L"DarkMode_Explorer",nullptr);
+ return v;
 }
 static HWND combo(int x,int y,int w,const std::vector<const wchar_t*>& options,int selected=0){
  HWND h=add(L"COMBOBOX",L"",CBS_DROPDOWNLIST|WS_TABSTOP,x,y,w,150);
@@ -188,7 +195,7 @@ static void checkUpdates(bool manual){
 static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
  switch(m){
  case WM_CREATE:{
-  root=h;
+  root=h;darkBrush=CreateSolidBrush(canvas);
   add(L"STATIC",L"LiteSR  /  CAPTURE STUDIO",0,28,20,850,28);
   add(L"STATIC",L"Record or go live  |  lightweight Windows capture",0,28,51,850,22);
   add(L"BUTTON",L"01   DESTINATION",BS_GROUPBOX,20,88,430,245);
@@ -239,6 +246,14 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   select(encoder,loadIndex(L"encoder",0,2));select(updates,loadIndex(L"channel",1,2));
   select(sourceMode,loadIndex(L"sourceMode",0,2));listCapture();SetTimer(h,1,500,nullptr);SetTimer(h,2,3500,nullptr);refresh();return 0;
  }
+ case WM_CTLCOLORSTATIC:
+ case WM_CTLCOLORBTN:
+ case WM_CTLCOLOREDIT:
+ case WM_CTLCOLORLISTBOX:{
+  HDC dc=(HDC)w;SetTextColor(dc,ink);SetBkColor(dc,canvas);
+  if(m==WM_CTLCOLOREDIT||m==WM_CTLCOLORLISTBOX)SetBkColor(dc,RGB(30,38,54));
+  return (LRESULT)darkBrush;
+ }
  case WM_COMMAND:
   if(LOWORD(w)==1)start();
   if(LOWORD(w)==2)stop();
@@ -259,13 +274,13 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
  case WM_CLOSE:
   if(process.hProcess){stop();MessageBoxW(h,L"Stop and finalize recording before closing.",L"LiteSR",MB_OK);return 0;}
   save();DestroyWindow(h);return 0;
- case WM_DESTROY:PostQuitMessage(0);return 0;
+ case WM_DESTROY:if(darkBrush){DeleteObject(darkBrush);darkBrush=nullptr;}PostQuitMessage(0);return 0;
  }
  return DefWindowProcW(h,m,w,l);
 }
 int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,LPWSTR,int show){
  WNDCLASSW wc{};wc.hInstance=instance;wc.lpfnWndProc=wnd;wc.lpszClassName=L"LiteSRMain";
- wc.hbrBackground=(HBRUSH)(COLOR_WINDOW+1);wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);
+ wc.hbrBackground=CreateSolidBrush(RGB(17,22,34));wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);
  RegisterClassW(&wc);
  HWND h=CreateWindowExW(0,L"LiteSRMain",L"LiteSR v0.2.0-alpha.9",WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX,
  CW_USEDEFAULT,CW_USEDEFAULT,917,810,nullptr,nullptr,instance,nullptr);
