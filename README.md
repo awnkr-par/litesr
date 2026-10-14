@@ -27,3 +27,6 @@ Choose Monitor or App window, then pick the displayed source. Refresh to redisco
 
 ## Streaming troubleshooting (alpha.8)
 Streaming now includes a silent stereo AAC track (real microphone and game audio are not yet implemented). FFmpeg writes diagnostics to `%APPDATA%\\LiteSR\\ffmpeg.log`. Click **Open stream log** after a failed launch to see why it stopped. Do not share stream keys or command lines. If QSV fails, try CPU x264 at 480p/30FPS for a diagnostic test.
+
+## Studio and updates (alpha.9)
+The studio layout now groups destination, capture source, video quality, and application controls. After you approve an update, LiteSR finishes an active recording or stream, closes itself, and the updater waits for exit before running the new installer. No unattended software installation; consent is required. The current updater should be tested on a real Windows machine and remains unsigned.
