@@ -14,7 +14,8 @@ static PROCESS_INFORMATION process{};
 static HANDLE stdinPipe{};
 static HANDLE logHandle{};
 static std::wstring logPath;
-static const wchar_t* buildVersion=L"0.2.0-alpha.8";
+static bool updateExitRequested=false;
+static const wchar_t* buildVersion=L"0.2.0-alpha.9";
 static std::wstring get(HWND h){int n=GetWindowTextLengthW(h);std::wstring s(n+1,L'\0');GetWindowTextW(h,s.data(),n+1);s.resize(n);return s;}
 static HWND add(const wchar_t* cls,const wchar_t* text,DWORD style,int x,int y,int w,int h,int id=0){
  HWND v=CreateWindowExW(0,cls,text,WS_CHILD|WS_VISIBLE|style,x,y,w,h,root,(HMENU)(INT_PTR)id,GetModuleHandleW(nullptr),nullptr);
@@ -44,6 +45,7 @@ static void save(){
  put(L"server",get(server));put(L"output",get(fileName));
  put(L"resolution",std::to_wstring(selection(resolution)));put(L"fps",std::to_wstring(selection(fps)));
  put(L"bitrate",get(bitrate));put(L"encoder",std::to_wstring(selection(encoder)));
+ put(L"sourceMode",std::to_wstring(selection(sourceMode)));
  put(L"audio",std::to_wstring(selection(audio)));put(L"channel",std::to_wstring(selection(updates)));
  // Stream keys are deliberately never written to disk.
 }
@@ -63,6 +65,7 @@ static void refresh(){
   if(logHandle){CloseHandle(logHandle);logHandle=nullptr;}
   setStatus(exitCode==0?L"Stopped normally.":L"FFmpeg stopped with an error. Check encoder or stream settings.");
  }
+ if(updateExitRequested&&!process.hProcess){save();DestroyWindow(root);return;}
  bool busy=process.hProcess!=nullptr;
  EnableWindow(startButton,!busy);EnableWindow(stopButton,busy);
 }
@@ -186,38 +189,47 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
  switch(m){
  case WM_CREATE:{
   root=h;
-  add(L"STATIC",L"LiteSR  |  Record + Stream  |  Experimental",0,18,13,520,22);
-  add(L"STATIC",L"Mode",0,20,52,104,22);
-  mode=combo(132,47,400,{L"Record to MP4",L"Live stream"});
-  add(L"STATIC",L"Streaming service",0,20,93,110,22);
-  service=combo(132,89,400,{L"YouTube",L"Twitch",L"Custom"});
-  add(L"STATIC",L"Server URL",0,20,133,105,22);
-  server=add(L"EDIT",L"",WS_BORDER|ES_AUTOHSCROLL,132,128,400,27);
-  add(L"STATIC",L"Stream key",0,20,173,100,22);
-  key=add(L"EDIT",L"",WS_BORDER|ES_PASSWORD|ES_AUTOHSCROLL,132,168,400,27);
-  add(L"STATIC",L"MP4 filename",0,20,213,105,22);
-  fileName=add(L"EDIT",L"recording.mp4",WS_BORDER|ES_AUTOHSCROLL,132,208,400,27);
-  add(L"STATIC",L"Capture source",0,20,256,110,22);
-  sourceMode=combo(132,251,180,{L"Monitor",L"App window"});
-  add(L"BUTTON",L"Refresh",BS_PUSHBUTTON,425,251,107,28,4);
-  sourceChoice=combo(132,289,400,{});
-  add(L"STATIC",L"Output quality",0,20,345,110,22);
-  resolution=combo(132,340,173,{L"480p (854x480)",L"720p (1280x720)",L"1080p (1920x1080)"},1);
-  fps=combo(320,340,95,{L"30 FPS",L"60 FPS"});
-  add(L"STATIC",L"Bitrate Kbps",0,20,388,110,22);
-  bitrate=add(L"EDIT",L"3000",WS_BORDER|ES_NUMBER,132,383,120,27);
-  add(L"STATIC",L"Encoder",0,270,388,70,22);
-  encoder=combo(340,383,192,{L"Intel QSV",L"CPU x264"});
-  add(L"STATIC",L"Audio",0,20,431,110,22);
-  audio=combo(132,426,400,{L"No audio (device capture coming soon)"});
-  startButton=add(L"BUTTON",L"Start",BS_PUSHBUTTON|WS_TABSTOP,20,482,248,42,1);
-  stopButton=add(L"BUTTON",L"Stop",BS_PUSHBUTTON|WS_TABSTOP,283,482,249,42,2);
-  state=add(L"STATIC",L"Ready. FFmpeg included.",0,20,535,520,45);
-  add(L"STATIC",L"Updates",0,20,600,90,22);
-  updates=combo(132,595,200,{L"Stable",L"Beta / Alpha"},1);
-  add(L"BUTTON",L"Check updates",BS_PUSHBUTTON,350,595,182,28,3);
-  add(L"BUTTON",L"Open stream log",BS_PUSHBUTTON,350,630,182,28,5);
-  add(L"STATIC",L"Do not share stream keys. GPU performance depends on hardware/driver.",0,20,639,525,25);
+  add(L"STATIC",L"LiteSR  /  CAPTURE STUDIO",0,28,20,850,28);
+  add(L"STATIC",L"Record or go live  |  lightweight Windows capture",0,28,51,850,22);
+  add(L"BUTTON",L"01   DESTINATION",BS_GROUPBOX,20,88,430,245);
+  add(L"STATIC",L"Mode",0,38,120,105,22);
+  mode=combo(158,116,272,{L"Record MP4",L"Live stream"});
+  add(L"STATIC",L"Service",0,38,162,100,22);
+  service=combo(158,158,272,{L"YouTube",L"Twitch",L"Custom RTMP"});
+  add(L"STATIC",L"Server URL",0,38,205,105,22);
+  server=add(L"EDIT",L"",WS_BORDER|ES_AUTOHSCROLL,158,201,272,27);
+  add(L"STATIC",L"Stream key",0,38,249,105,22);
+  key=add(L"EDIT",L"",WS_BORDER|ES_PASSWORD|ES_AUTOHSCROLL,158,245,272,27);
+  add(L"STATIC",L"Recording path",0,38,290,105,22);
+  fileName=add(L"EDIT",L"recording.mp4",WS_BORDER|ES_AUTOHSCROLL,158,285,272,27);
+  add(L"BUTTON",L"02   CAPTURE SOURCE",BS_GROUPBOX,466,88,427,245);
+  add(L"STATIC",L"Capture from",0,485,121,120,22);
+  sourceMode=combo(624,116,248,{L"Monitor",L"Application window"});
+  add(L"STATIC",L"Selected source",0,485,164,120,22);
+  sourceChoice=combo(624,159,248,{});
+  add(L"BUTTON",L"Refresh sources",BS_PUSHBUTTON,624,207,248,30,4);
+  add(L"STATIC",L"Window capture may not support some fullscreen games.",0,485,257,390,40);
+  add(L"BUTTON",L"03   VIDEO QUALITY",BS_GROUPBOX,20,349,430,188);
+  add(L"STATIC",L"Resolution",0,38,390,110,22);
+  resolution=combo(158,386,272,{L"480p  -  854 x 480",L"720p  -  1280 x 720",L"1080p  -  1920 x 1080"},1);
+  add(L"STATIC",L"Frame rate",0,38,429,110,22);
+  fps=combo(158,425,272,{L"30 FPS",L"60 FPS"});
+  add(L"STATIC",L"Bitrate (Kbps)",0,38,471,120,22);
+  bitrate=add(L"EDIT",L"3000",WS_BORDER|ES_NUMBER,158,467,120,28);
+  add(L"STATIC",L"Encoder",0,38,511,108,22);
+  encoder=combo(158,507,272,{L"Intel Quick Sync",L"CPU x264"});
+  add(L"BUTTON",L"04   SYSTEM",BS_GROUPBOX,466,349,427,188);
+  add(L"STATIC",L"Audio input",0,485,392,130,22);
+  audio=combo(624,387,248,{L"No audio - coming soon"});
+  add(L"STATIC",L"Update channel",0,485,436,130,22);
+  updates=combo(624,431,248,{L"Stable",L"Beta / Alpha"},1);
+  add(L"BUTTON",L"Check updates",BS_PUSHBUTTON,485,481,188,32,3);
+  add(L"BUTTON",L"View FFmpeg log",BS_PUSHBUTTON,684,481,188,32,5);
+  add(L"STATIC",L"SESSION CONTROL",0,28,558,360,25);
+  startButton=add(L"BUTTON",L"START CAPTURE / STREAM",BS_PUSHBUTTON|WS_TABSTOP,28,595,408,48,1);
+  stopButton=add(L"BUTTON",L"STOP & FINALIZE",BS_PUSHBUTTON|WS_TABSTOP,456,595,408,48,2);
+  state=add(L"STATIC",L"Ready  |  FFmpeg bundled  |  Choose a source to begin",0,28,662,838,40);
+  add(L"STATIC",L"Early alpha. No game audio yet. Stream keys are never saved.",0,28,719,836,25);
   select(mode,loadIndex(L"mode",0,2));select(service,loadIndex(L"service",0,3));
   serviceChanged();
   auto savedServer=load(L"server",L"");if(!savedServer.empty())SetWindowTextW(server,savedServer.c_str());
@@ -225,7 +237,7 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   select(resolution,loadIndex(L"resolution",1,3));select(fps,loadIndex(L"fps",0,2));
   SetWindowTextW(bitrate,load(L"bitrate",L"3000").c_str());
   select(encoder,loadIndex(L"encoder",0,2));select(updates,loadIndex(L"channel",1,2));
-  listCapture();SetTimer(h,1,500,nullptr);SetTimer(h,2,3500,nullptr);refresh();return 0;
+  select(sourceMode,loadIndex(L"sourceMode",0,2));listCapture();SetTimer(h,1,500,nullptr);SetTimer(h,2,3500,nullptr);refresh();return 0;
  }
  case WM_COMMAND:
   if(LOWORD(w)==1)start();
@@ -236,6 +248,13 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   if((HWND)l==service&&HIWORD(w)==CBN_SELCHANGE)serviceChanged();
   return 0;
  case WM_TIMER:
+  if(w==1){
+   auto marker=cfg();marker=marker.substr(0,marker.find_last_of(L"\\/")+1)+L"update-ready.flag";
+   if(GetFileAttributesW(marker.c_str())!=INVALID_FILE_ATTRIBUTES){
+    DeleteFileW(marker.c_str());updateExitRequested=true;
+    if(process.hProcess){stop();setStatus(L"Update approved - finalizing capture before installing...");}
+   }
+  }
   if(w==2){KillTimer(h,2);checkUpdates(false);}else refresh();return 0;
  case WM_CLOSE:
   if(process.hProcess){stop();MessageBoxW(h,L"Stop and finalize recording before closing.",L"LiteSR",MB_OK);return 0;}
@@ -248,8 +267,8 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,LPWSTR,int show){
  WNDCLASSW wc{};wc.hInstance=instance;wc.lpfnWndProc=wnd;wc.lpszClassName=L"LiteSRMain";
  wc.hbrBackground=(HBRUSH)(COLOR_WINDOW+1);wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);
  RegisterClassW(&wc);
- HWND h=CreateWindowExW(0,L"LiteSRMain",L"LiteSR v0.2.0-alpha.8",WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX,
- CW_USEDEFAULT,CW_USEDEFAULT,562,725,nullptr,nullptr,instance,nullptr);
+ HWND h=CreateWindowExW(0,L"LiteSRMain",L"LiteSR v0.2.0-alpha.9",WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX,
+ CW_USEDEFAULT,CW_USEDEFAULT,917,810,nullptr,nullptr,instance,nullptr);
  ShowWindow(h,show);MSG msg;
  while(GetMessageW(&msg,nullptr,0,0)>0){TranslateMessage(&msg);DispatchMessageW(&msg);}
  return 0;
