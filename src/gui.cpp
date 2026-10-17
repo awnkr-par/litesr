@@ -399,7 +399,7 @@ static void checkUpdates(bool manual){
  std::wstring script=directory()+L"updater\\update.ps1";
  if(GetFileAttributesW(script.c_str())==INVALID_FILE_ATTRIBUTES)return;
  std::wstring command=L"powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "+
- quote(script)+L" -Channel "+(selection(updates)==0?L"stable":L"beta")+L" -ParentPid "+std::to_wstring(GetCurrentProcessId());
+ quote(script)+L" -Channel "+L"beta"+L" -ParentPid "+std::to_wstring(GetCurrentProcessId());
  if(manual)command+=L" -Manual";
  STARTUPINFOW si{};si.cb=sizeof(si);PROCESS_INFORMATION pi{};
  std::vector<wchar_t> buffer(command.begin(),command.end());buffer.push_back(0);
@@ -551,6 +551,11 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   select(sourceMode,loadIndex(L"sourceMode",0,2));listCapture();listMicrophones();
   auto micSaved=load(L"microphone",L"");for(size_t i=0;i<microphoneDevices.size();++i)if(microphoneDevices[i]==micSaved){select(audio,(int)i+1);break;}
   RegisterHotKey(h,91,MOD_NOREPEAT,VK_F9);RegisterHotKey(h,92,MOD_NOREPEAT,VK_F10);
+  // Technical controls live in Settings, not on the studio surface.
+  for(const auto& entry:uiPositions){
+   int x=entry.bounds.left,y=entry.bounds.top;
+   if((x>=920&&((y>=180&&y<=302)||(y>=372&&y<=555)))||(x==530&&y==58))ShowWindow(entry.h,SW_HIDE);
+  }
   layoutReady=true;layoutWorkspace();
   SetTimer(h,1,reducedPreview?2500:1000,nullptr);SetTimer(h,2,3500,nullptr);refresh();return 0;
  }
