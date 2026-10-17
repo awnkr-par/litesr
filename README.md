@@ -35,3 +35,6 @@ Alpha.10 adds a darker studio appearance, while retaining the consent-based upda
 
 ## Appearance (alpha.11)
 MazClient-inspired blue-accented studio theme with a bottom-right Light/Dark button. Your preference is stored in `%APPDATA%\\LiteSR\\settings.ini`, applies immediately, and persists after restart. The design uses native Win32 controls; custom themes may vary slightly by Windows release.
+
+## alpha.12 display fix
+Replaces incorrectly themed standard Win32 text labels, dropdown items and buttons with theme-aware custom drawn controls. Removes clashing native groupbox outlines and uses plain text theme labels to avoid encoding problems. This update addresses reported mixed white and dark rendering in Windows 11.
