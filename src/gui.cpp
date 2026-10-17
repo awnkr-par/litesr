@@ -17,6 +17,14 @@ static HBRUSH darkBrush{},fieldBrush{};
 static bool darkMode=true;
 static HWND themeButton{};
 static RECT previewArea={26,94,902,558};
+static const RECT basePreview={26,94,902,558};
+static bool fullscreen=false;
+static DWORD savedStyle=0,savedExStyle=0;
+static WINDOWPLACEMENT savedPlacement{sizeof(WINDOWPLACEMENT)};
+static HWND fullscreenButton{};
+struct UiPosition{HWND h;RECT bounds;};
+static std::vector<UiPosition> uiPositions;
+static bool layoutReady=false;
 static HFONT uiFont{};
 static COLORREF accent=RGB(85,135,250);
 static void applyTheme();
@@ -42,12 +50,55 @@ static ULONGLONG captureStarted=0;
 static HWND previewButton{}, sessionInfo{};
 static std::wstring selectedCaptureLabel;
 static int selectedCaptureMode=0;
-static const wchar_t* buildVersion=L"0.2.0-alpha.16";
+static const wchar_t* buildVersion=L"0.2.0-alpha.17";
+static void layoutWorkspace(){
+ if(!root||!layoutReady)return;
+ RECT client{};GetClientRect(root,&client);
+ double x=(double)(client.right-client.left)/1244.0;
+ double y=(double)(client.bottom-client.top)/886.0;
+ HDWP batch=BeginDeferWindowPos((int)uiPositions.size());
+ if(!batch)return;
+ for(const auto& entry:uiPositions){
+  const RECT& b=entry.bounds;
+  int left=(int)(b.left*x),top=(int)(b.top*y);
+  int width=std::max(1,(int)((b.right-b.left)*x));
+  int height=std::max(1,(int)((b.bottom-b.top)*y));
+  batch=DeferWindowPos(batch,entry.h,nullptr,left,top,width,height,SWP_NOZORDER|SWP_NOACTIVATE);
+  if(!batch)break;
+ }
+ if(batch)EndDeferWindowPos(batch);
+ previewArea={(LONG)(basePreview.left*x),(LONG)(basePreview.top*y),(LONG)(basePreview.right*x),(LONG)(basePreview.bottom*y)};
+ InvalidateRect(root,nullptr,TRUE);
+}
+static void toggleFullscreen(){
+ if(!root)return;
+ if(!fullscreen){
+  savedStyle=(DWORD)GetWindowLongPtrW(root,GWL_STYLE);
+  savedExStyle=(DWORD)GetWindowLongPtrW(root,GWL_EXSTYLE);
+  savedPlacement.length=sizeof(savedPlacement);
+  GetWindowPlacement(root,&savedPlacement);
+  HMONITOR monitor=MonitorFromWindow(root,MONITOR_DEFAULTTONEAREST);
+  MONITORINFO mi{sizeof(mi)};if(!GetMonitorInfoW(monitor,&mi))return;
+  fullscreen=true;
+  SetWindowLongPtrW(root,GWL_STYLE,(LONG_PTR)(savedStyle&~(WS_CAPTION|WS_THICKFRAME|WS_MINIMIZEBOX|WS_MAXIMIZEBOX|WS_SYSMENU)));
+  SetWindowLongPtrW(root,GWL_EXSTYLE,(LONG_PTR)(savedExStyle&~(WS_EX_DLGMODALFRAME|WS_EX_CLIENTEDGE|WS_EX_STATICEDGE)));
+  SetWindowPos(root,HWND_TOP,mi.rcMonitor.left,mi.rcMonitor.top,mi.rcMonitor.right-mi.rcMonitor.left,mi.rcMonitor.bottom-mi.rcMonitor.top,SWP_FRAMECHANGED|SWP_SHOWWINDOW);
+ }else{
+  fullscreen=false;
+  SetWindowLongPtrW(root,GWL_STYLE,(LONG_PTR)savedStyle);
+  SetWindowLongPtrW(root,GWL_EXSTYLE,(LONG_PTR)savedExStyle);
+  SetWindowPlacement(root,&savedPlacement);
+  SetWindowPos(root,nullptr,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_FRAMECHANGED);
+ }
+ if(fullscreenButton)SetWindowTextW(fullscreenButton,fullscreen?L"Exit fullscreen [F11]":L"Fullscreen [F11]");
+ layoutWorkspace();
+}
 static std::wstring get(HWND h){int n=GetWindowTextLengthW(h);std::wstring s(n+1,L'\0');GetWindowTextW(h,s.data(),n+1);s.resize(n);return s;}
 static HWND add(const wchar_t* cls,const wchar_t* text,DWORD style,int x,int y,int w,int h,int id=0){
  if(wcscmp(cls,L"STATIC")==0)style|=SS_OWNERDRAW;
  if(wcscmp(cls,L"BUTTON")==0 && (style&BS_TYPEMASK)!=BS_GROUPBOX)style=(style&~BS_TYPEMASK)|BS_OWNERDRAW;
  HWND v=CreateWindowExW(0,cls,text,WS_CHILD|WS_VISIBLE|style,x,y,w,h,root,(HMENU)(INT_PTR)id,GetModuleHandleW(nullptr),nullptr);
+ if(v)uiPositions.push_back({v,{x,y,x+w,y+h}});
  SendMessageW(v,WM_SETFONT,(WPARAM)(uiFont?uiFont:GetStockObject(DEFAULT_GUI_FONT)),TRUE);
  if(wcscmp(cls,L"COMBOBOX")==0||wcscmp(cls,L"EDIT")==0||wcscmp(cls,L"BUTTON")==0)SetWindowTheme(v,darkMode?L"DarkMode_Explorer":L"Explorer",nullptr);
  return v;
@@ -309,7 +360,8 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   uiFont=CreateFontW(-17,0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Segoe UI");
   darkMode=(load(L"theme",L"dark")!=L"light");applyTheme();
   add(L"STATIC",L"LiteSR  /  STUDIO",0,22,12,480,32);
-  add(L"STATIC",L"RECORD  /  STREAM  /  CREATE",0,530,18,500,25);
+  add(L"STATIC",L"RECORD  /  STREAM  /  CREATE",0,530,18,300,25);
+  fullscreenButton=add(L"BUTTON",L"Fullscreen [F11]",BS_PUSHBUTTON,1034,14,193,32,11);
   add(L"STATIC",L"PREVIEW  -  selected capture source",0,27,58,560,28);
   previewButton=add(L"BUTTON",L"Preview: ON",BS_PUSHBUTTON,730,58,170,29,7);
   add(L"STATIC",L"OUTPUT SETTINGS",0,928,60,300,28);
@@ -369,8 +421,11 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   select(sourceMode,loadIndex(L"sourceMode",0,2));listCapture();listMicrophones();
   auto micSaved=load(L"microphone",L"");for(size_t i=0;i<microphoneDevices.size();++i)if(microphoneDevices[i]==micSaved){select(audio,(int)i+1);break;}
   RegisterHotKey(h,91,MOD_NOREPEAT,VK_F9);RegisterHotKey(h,92,MOD_NOREPEAT,VK_F10);
+  layoutReady=true;layoutWorkspace();
   SetTimer(h,1,1000,nullptr);SetTimer(h,2,3500,nullptr);refresh();return 0;
  }
+ case WM_SIZE:if(layoutReady&&w!=SIZE_MINIMIZED)layoutWorkspace();return 0;
+ case WM_KEYDOWN:if(w==VK_F11){toggleFullscreen();return 0;}if(w==VK_ESCAPE&&fullscreen){toggleFullscreen();return 0;}break;
  case WM_PAINT:{
   PAINTSTRUCT ps{};HDC dc=BeginPaint(h,&ps);
   HBRUSH bg=CreateSolidBrush(darkMode?RGB(9,13,22):RGB(218,229,244));
@@ -461,6 +516,7 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   if(LOWORD(w)==3)checkUpdates(true);
   if(LOWORD(w)==4||((HWND)l==sourceMode&&HIWORD(w)==CBN_SELCHANGE))listCapture();
   if((HWND)l==sourceChoice&&HIWORD(w)==CBN_SELCHANGE){int i=selection(sourceChoice);if(i>=0&&i<(int)captures.size())selectedCaptureLabel=captures[(size_t)i].label;save();InvalidateRect(root,&previewArea,FALSE);}
+  if(LOWORD(w)==11)toggleFullscreen();
   if(LOWORD(w)==10){listMicrophones();save();}
   if((HWND)l==audio&&HIWORD(w)==CBN_SELCHANGE)save();
   if(LOWORD(w)==8)browseRecording();
@@ -493,7 +549,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,LPWSTR,int show){
  WNDCLASSW wc{};wc.hInstance=instance;wc.lpfnWndProc=wnd;wc.lpszClassName=L"LiteSRMain";
  wc.hbrBackground=(HBRUSH)(COLOR_WINDOW+1);wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);
  RegisterClassW(&wc);
- HWND h=CreateWindowExW(0,L"LiteSRMain",L"LiteSR v0.2.0-alpha.16",WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX,
+ HWND h=CreateWindowExW(0,L"LiteSRMain",L"LiteSR v0.2.0-alpha.17",WS_OVERLAPPEDWINDOW,
  CW_USEDEFAULT,CW_USEDEFAULT,1260,925,nullptr,nullptr,instance,nullptr);
  ShowWindow(h,show);MSG msg;
  while(GetMessageW(&msg,nullptr,0,0)>0){TranslateMessage(&msg);DispatchMessageW(&msg);}
