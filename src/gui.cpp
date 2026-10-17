@@ -11,6 +11,7 @@
 static HBRUSH darkBrush{},fieldBrush{};
 static bool darkMode=true;
 static HWND themeButton{};
+static RECT previewArea={26,94,902,558};
 static HFONT uiFont{};
 static COLORREF accent=RGB(85,135,250);
 static void applyTheme();
@@ -27,7 +28,7 @@ static HANDLE stdinPipe{};
 static HANDLE logHandle{};
 static std::wstring logPath;
 static bool updateExitRequested=false;
-static const wchar_t* buildVersion=L"0.2.0-alpha.12";
+static const wchar_t* buildVersion=L"0.2.0-alpha.13";
 static std::wstring get(HWND h){int n=GetWindowTextLengthW(h);std::wstring s(n+1,L'\0');GetWindowTextW(h,s.data(),n+1);s.resize(n);return s;}
 static HWND add(const wchar_t* cls,const wchar_t* text,DWORD style,int x,int y,int w,int h,int id=0){
  if(wcscmp(cls,L"STATIC")==0)style|=SS_OWNERDRAW;
@@ -227,48 +228,46 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   root=h;
   uiFont=CreateFontW(-17,0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Segoe UI");
   darkMode=(load(L"theme",L"dark")!=L"light");applyTheme();
-  add(L"STATIC",L"LiteSR  /  CAPTURE STUDIO",0,28,20,850,28);
-  add(L"STATIC",L"Record or go live  |  lightweight Windows capture",0,28,51,850,22);
-  add(L"STATIC",L"01   DESTINATION",0,28,94,400,30);
-  add(L"STATIC",L"Mode",0,38,120,105,22);
-  mode=combo(158,116,272,{L"Record MP4",L"Live stream"});
-  add(L"STATIC",L"Service",0,38,162,100,22);
-  service=combo(158,158,272,{L"YouTube",L"Twitch",L"Custom RTMP"});
-  add(L"STATIC",L"Server URL",0,38,205,105,22);
-  server=add(L"EDIT",L"",WS_BORDER|ES_AUTOHSCROLL,158,201,272,27);
-  add(L"STATIC",L"Stream key",0,38,249,105,22);
-  key=add(L"EDIT",L"",WS_BORDER|ES_PASSWORD|ES_AUTOHSCROLL,158,245,272,27);
-  add(L"STATIC",L"Recording path",0,38,290,105,22);
-  fileName=add(L"EDIT",L"recording.mp4",WS_BORDER|ES_AUTOHSCROLL,158,285,272,27);
-  add(L"STATIC",L"02   CAPTURE SOURCE",0,475,94,398,30);
-  add(L"STATIC",L"Capture from",0,485,121,120,22);
-  sourceMode=combo(624,116,248,{L"Monitor",L"Application window"});
-  add(L"STATIC",L"Selected source",0,485,164,120,22);
-  sourceChoice=combo(624,159,248,{});
-  add(L"BUTTON",L"Refresh sources",BS_PUSHBUTTON,624,207,248,30,4);
-  add(L"STATIC",L"Window capture may not support some fullscreen games.",0,485,257,390,40);
-  add(L"STATIC",L"03   VIDEO QUALITY",0,28,357,400,30);
-  add(L"STATIC",L"Resolution",0,38,390,110,22);
-  resolution=combo(158,386,272,{L"480p  -  854 x 480",L"720p  -  1280 x 720",L"1080p  -  1920 x 1080"},1);
-  add(L"STATIC",L"Frame rate",0,38,429,110,22);
-  fps=combo(158,425,272,{L"30 FPS",L"60 FPS"});
-  add(L"STATIC",L"Bitrate (Kbps)",0,38,471,120,22);
-  bitrate=add(L"EDIT",L"3000",WS_BORDER|ES_NUMBER,158,467,120,28);
-  add(L"STATIC",L"Encoder",0,38,511,108,22);
-  encoder=combo(158,507,272,{L"Intel Quick Sync",L"CPU x264"});
-  add(L"STATIC",L"04   SYSTEM",0,475,357,398,30);
-  add(L"STATIC",L"Audio input",0,485,392,130,22);
-  audio=combo(624,387,248,{L"No audio - coming soon"});
-  add(L"STATIC",L"Update channel",0,485,436,130,22);
-  updates=combo(624,431,248,{L"Stable",L"Beta / Alpha"},1);
-  add(L"BUTTON",L"Check updates",BS_PUSHBUTTON,485,481,188,32,3);
-  add(L"BUTTON",L"View FFmpeg log",BS_PUSHBUTTON,684,481,188,32,5);
-  add(L"STATIC",L"SESSION CONTROL",0,28,558,360,25);
-  startButton=add(L"BUTTON",L"START CAPTURE / STREAM",BS_PUSHBUTTON|WS_TABSTOP,28,595,408,48,1);
-  stopButton=add(L"BUTTON",L"STOP & FINALIZE",BS_PUSHBUTTON|WS_TABSTOP,456,595,408,48,2);
-  state=add(L"STATIC",L"Ready  |  FFmpeg bundled  |  Choose a source to begin",0,28,662,838,40);
-  add(L"STATIC",L"Early alpha. No game audio yet. Stream keys are never saved.",0,28,719,620,25);
-  themeButton=add(L"BUTTON",L"",BS_OWNERDRAW|WS_TABSTOP,695,707,169,36,6);
+  add(L"STATIC",L"LiteSR  /  STUDIO",0,22,12,480,32);
+  add(L"STATIC",L"RECORD  /  STREAM  /  CREATE",0,530,18,500,25);
+  add(L"STATIC",L"PREVIEW  -  selected capture source",0,27,58,820,28);
+  add(L"STATIC",L"OUTPUT SETTINGS",0,928,60,300,28);
+  add(L"STATIC",L"Output",0,929,101,85,24);
+  mode=combo(1022,97,206,{L"Record MP4",L"Live stream"});
+  add(L"STATIC",L"Platform",0,929,144,85,24);
+  service=combo(1022,140,206,{L"YouTube",L"Twitch",L"Custom RTMP"});
+  add(L"STATIC",L"Server URL",0,929,187,120,22);
+  server=add(L"EDIT",L"",WS_BORDER|ES_AUTOHSCROLL,928,210,300,28);
+  add(L"STATIC",L"Stream key",0,929,250,120,22);
+  key=add(L"EDIT",L"",WS_BORDER|ES_PASSWORD|ES_AUTOHSCROLL,928,274,300,28);
+  add(L"STATIC",L"Recording filename",0,929,317,280,22);
+  fileName=add(L"EDIT",L"recording.mp4",WS_BORDER|ES_AUTOHSCROLL,928,341,300,28);
+  add(L"STATIC",L"Resolution",0,929,388,120,22);
+  resolution=combo(1045,382,183,{L"480p 854x480",L"720p 1280x720",L"1080p 1920x1080"},1);
+  add(L"STATIC",L"FPS",0,929,425,100,22);
+  fps=combo(1045,422,183,{L"30 FPS",L"60 FPS"});
+  add(L"STATIC",L"Bitrate kbps",0,929,463,130,22);
+  bitrate=add(L"EDIT",L"3000",WS_BORDER|ES_NUMBER,1045,460,183,27);
+  add(L"STATIC",L"Encoder",0,929,503,120,22);
+  encoder=combo(1045,498,183,{L"Intel Quick Sync",L"CPU x264"});
+  add(L"STATIC",L"SCENES",0,28,585,192,26);
+  add(L"STATIC",L"Main scene",0,30,630,194,26);
+  add(L"STATIC",L"SOURCES",0,251,585,304,26);
+  sourceMode=combo(260,620,290,{L"Display capture",L"Window capture"});
+  sourceChoice=combo(260,669,290,{});
+  add(L"BUTTON",L"Refresh sources",BS_PUSHBUTTON,260,716,290,34,4);
+  add(L"STATIC",L"AUDIO MIXER",0,581,585,290,28);
+  add(L"STATIC",L"No audio devices configured.",0,589,639,279,26);
+  add(L"STATIC",L"Audio recording is not implemented yet.",0,589,678,284,56);
+  audio=combo(590,736,270,{L"Audio capture unavailable"});
+  add(L"STATIC",L"CONTROLS",0,901,585,324,28);
+  startButton=add(L"BUTTON",L"Start recording / streaming",BS_PUSHBUTTON|WS_TABSTOP,906,621,318,46,1);
+  stopButton=add(L"BUTTON",L"Stop and finalize",BS_PUSHBUTTON|WS_TABSTOP,906,677,318,43,2);
+  updates=combo(906,737,155,{L"Stable",L"Beta / Alpha"},1);
+  add(L"BUTTON",L"Check updates",BS_PUSHBUTTON,1071,737,153,32,3);
+  add(L"BUTTON",L"View FFmpeg log",BS_PUSHBUTTON,906,779,152,32,5);
+  themeButton=add(L"BUTTON",L"",BS_OWNERDRAW|WS_TABSTOP,1070,779,154,32,6);
+  state=add(L"STATIC",L"Ready  |  FFmpeg included",0,27,828,1180,36);
   applyTheme();
   select(mode,loadIndex(L"mode",0,2));select(service,loadIndex(L"service",0,3));
   serviceChanged();
@@ -278,6 +277,30 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   SetWindowTextW(bitrate,load(L"bitrate",L"3000").c_str());
   select(encoder,loadIndex(L"encoder",0,2));select(updates,loadIndex(L"channel",1,2));
   select(sourceMode,loadIndex(L"sourceMode",0,2));listCapture();SetTimer(h,1,500,nullptr);SetTimer(h,2,3500,nullptr);refresh();return 0;
+ }
+ case WM_PAINT:{
+  PAINTSTRUCT ps{};HDC dc=BeginPaint(h,&ps);
+  HBRUSH bg=CreateSolidBrush(darkMode?RGB(9,13,22):RGB(218,229,244));
+  FillRect(dc,&previewArea,bg);DeleteObject(bg);
+  int selectedIndex=sourceChoice?selection(sourceChoice):-1;
+  if(selectedIndex>=0&&selectedIndex<(int)captures.size()){
+   const Capture& c=captures[(size_t)selectedIndex];
+   RECT r=c.bounds;int sw=r.right-r.left,sh=r.bottom-r.top;
+   if(sw>0&&sh>0){
+    int vw=previewArea.right-previewArea.left-24,vh=previewArea.bottom-previewArea.top-24;
+    double scale=std::min((double)vw/sw,(double)vh/sh);
+    int dw=(int)(sw*scale),dh=(int)(sh*scale);
+    int dx=previewArea.left+(previewArea.right-previewArea.left-dw)/2;
+    int dy=previewArea.top+(previewArea.bottom-previewArea.top-dh)/2;
+    HDC src=GetDC(nullptr);
+    if(src){SetStretchBltMode(dc,HALFTONE);
+      StretchBlt(dc,dx,dy,dw,dh,src,r.left,r.top,sw,sh,SRCCOPY);ReleaseDC(nullptr,src);}
+   }
+  }else{
+   SetBkMode(dc,TRANSPARENT);SetTextColor(dc,darkMode?RGB(152,168,196):RGB(67,86,115));
+   DrawTextW(dc,L"Select a source below to preview your capture.",-1,&previewArea,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+  }
+  EndPaint(h,&ps);return 0;
  }
  case WM_ERASEBKGND:{RECT r;GetClientRect(h,&r);HBRUSH b=CreateSolidBrush(canvas);FillRect((HDC)w,&r,b);DeleteObject(b);return 1;}
  case WM_MEASUREITEM:{MEASUREITEMSTRUCT* mi=(MEASUREITEMSTRUCT*)l;mi->itemHeight=27;return TRUE;}
@@ -341,6 +364,7 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   if(LOWORD(w)==2)stop();
   if(LOWORD(w)==3)checkUpdates(true);
   if(LOWORD(w)==4||((HWND)l==sourceMode&&HIWORD(w)==CBN_SELCHANGE))listCapture();
+  if((HWND)l==sourceChoice&&HIWORD(w)==CBN_SELCHANGE)InvalidateRect(root,&previewArea,FALSE);
   if(LOWORD(w)==6){darkMode=!darkMode;applyTheme();save();}
   if(LOWORD(w)==5){std::wstring p=logPath.empty()?cfg().substr(0,cfg().find_last_of(L"\\/")+1)+L"ffmpeg.log":logPath;ShellExecuteW(h,L"open",p.c_str(),nullptr,nullptr,SW_SHOWNORMAL);}
   if((HWND)l==service&&HIWORD(w)==CBN_SELCHANGE)serviceChanged();
@@ -353,7 +377,9 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
     if(process.hProcess){stop();setStatus(L"Update approved - finalizing capture before installing...");}
    }
   }
-  if(w==2){KillTimer(h,2);checkUpdates(false);}else refresh();return 0;
+  if(w==2){KillTimer(h,2);checkUpdates(false);}else refresh();
+  if(w==1)InvalidateRect(h,&previewArea,FALSE);
+  return 0;
  case WM_CLOSE:
   if(process.hProcess){stop();MessageBoxW(h,L"Stop and finalize recording before closing.",L"LiteSR",MB_OK);return 0;}
   save();DestroyWindow(h);return 0;
@@ -365,8 +391,8 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,LPWSTR,int show){
  WNDCLASSW wc{};wc.hInstance=instance;wc.lpfnWndProc=wnd;wc.lpszClassName=L"LiteSRMain";
  wc.hbrBackground=(HBRUSH)(COLOR_WINDOW+1);wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);
  RegisterClassW(&wc);
- HWND h=CreateWindowExW(0,L"LiteSRMain",L"LiteSR v0.2.0-alpha.12",WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX,
- CW_USEDEFAULT,CW_USEDEFAULT,917,810,nullptr,nullptr,instance,nullptr);
+ HWND h=CreateWindowExW(0,L"LiteSRMain",L"LiteSR v0.2.0-alpha.13",WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX,
+ CW_USEDEFAULT,CW_USEDEFAULT,1260,925,nullptr,nullptr,instance,nullptr);
  ShowWindow(h,show);MSG msg;
  while(GetMessageW(&msg,nullptr,0,0)>0){TranslateMessage(&msg);DispatchMessageW(&msg);}
  return 0;
