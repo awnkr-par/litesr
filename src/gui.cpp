@@ -8,9 +8,15 @@
 #include <cwchar>
 #include <uxtheme.h>
 #pragma comment(lib,"uxtheme.lib")
-static HBRUSH darkBrush{};
+static HBRUSH darkBrush{},fieldBrush{};
+static bool darkMode=true;
+static HWND themeButton{};
+static HFONT uiFont{};
+static COLORREF accent=RGB(85,135,250);
+static void applyTheme();
 static COLORREF ink=RGB(230,235,246);
 static COLORREF canvas=RGB(17,22,34);
+static COLORREF fieldColor=RGB(30,38,54);
 static HWND sourceMode{},sourceChoice{};
 struct Capture{std::wstring label;RECT bounds{};HWND window{};bool display{};};
 static std::vector<Capture> captures;
@@ -20,12 +26,12 @@ static HANDLE stdinPipe{};
 static HANDLE logHandle{};
 static std::wstring logPath;
 static bool updateExitRequested=false;
-static const wchar_t* buildVersion=L"0.2.0-alpha.10";
+static const wchar_t* buildVersion=L"0.2.0-alpha.11";
 static std::wstring get(HWND h){int n=GetWindowTextLengthW(h);std::wstring s(n+1,L'\0');GetWindowTextW(h,s.data(),n+1);s.resize(n);return s;}
 static HWND add(const wchar_t* cls,const wchar_t* text,DWORD style,int x,int y,int w,int h,int id=0){
  HWND v=CreateWindowExW(0,cls,text,WS_CHILD|WS_VISIBLE|style,x,y,w,h,root,(HMENU)(INT_PTR)id,GetModuleHandleW(nullptr),nullptr);
- SendMessageW(v,WM_SETFONT,(WPARAM)GetStockObject(DEFAULT_GUI_FONT),TRUE);
- if(wcscmp(cls,L"COMBOBOX")==0||wcscmp(cls,L"EDIT")==0||wcscmp(cls,L"BUTTON")==0)SetWindowTheme(v,L"DarkMode_Explorer",nullptr);
+ SendMessageW(v,WM_SETFONT,(WPARAM)(uiFont?uiFont:GetStockObject(DEFAULT_GUI_FONT)),TRUE);
+ if(wcscmp(cls,L"COMBOBOX")==0||wcscmp(cls,L"EDIT")==0||wcscmp(cls,L"BUTTON")==0)SetWindowTheme(v,darkMode?L"DarkMode_Explorer":L"Explorer",nullptr);
  return v;
 }
 static HWND combo(int x,int y,int w,const std::vector<const wchar_t*>& options,int selected=0){
@@ -52,6 +58,7 @@ static void save(){
  put(L"server",get(server));put(L"output",get(fileName));
  put(L"resolution",std::to_wstring(selection(resolution)));put(L"fps",std::to_wstring(selection(fps)));
  put(L"bitrate",get(bitrate));put(L"encoder",std::to_wstring(selection(encoder)));
+ put(L"theme",darkMode?L"dark":L"light");
  put(L"sourceMode",std::to_wstring(selection(sourceMode)));
  put(L"audio",std::to_wstring(selection(audio)));put(L"channel",std::to_wstring(selection(updates)));
  // Stream keys are deliberately never written to disk.
@@ -62,6 +69,24 @@ static std::wstring load(const wchar_t* name,const wchar_t* fallback){
 static int loadIndex(const wchar_t* name,int fallback,int maximum){
  try {int n=std::stoi(load(name,std::to_wstring(fallback).c_str()));return n>=0&&n<maximum?n:fallback;}
  catch(...){return fallback;}
+}
+static void applyTheme(){
+ canvas=darkMode?RGB(17,22,34):RGB(244,247,253);
+ fieldColor=darkMode?RGB(30,38,54):RGB(255,255,255);
+ ink=darkMode?RGB(230,235,246):RGB(31,45,73);
+ if(darkBrush)DeleteObject(darkBrush);
+ if(fieldBrush)DeleteObject(fieldBrush);
+ darkBrush=CreateSolidBrush(canvas);fieldBrush=CreateSolidBrush(fieldColor);
+ if(root){
+  SetWindowTextW(themeButton,darkMode?L"☀  Light mode":L"☾  Dark mode");
+  EnumChildWindows(root,[](HWND h,LPARAM mode)->BOOL{
+   wchar_t cls[32]{};GetClassNameW(h,cls,32);
+   if(wcscmp(cls,L"BUTTON")==0||wcscmp(cls,L"COMBOBOX")==0||wcscmp(cls,L"EDIT")==0)
+    SetWindowTheme(h,mode?L"DarkMode_Explorer":L"Explorer",nullptr);
+   InvalidateRect(h,nullptr,TRUE);return TRUE;
+  },(LPARAM)(darkMode?1:0));
+  InvalidateRect(root,nullptr,TRUE);
+ }
 }
 static void setStatus(const wchar_t* s){SetWindowTextW(state,s);}
 static void refresh(){
@@ -195,7 +220,9 @@ static void checkUpdates(bool manual){
 static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
  switch(m){
  case WM_CREATE:{
-  root=h;darkBrush=CreateSolidBrush(canvas);
+  root=h;
+  uiFont=CreateFontW(-17,0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Segoe UI");
+  darkMode=(load(L"theme",L"dark")!=L"light");applyTheme();
   add(L"STATIC",L"LiteSR  /  CAPTURE STUDIO",0,28,20,850,28);
   add(L"STATIC",L"Record or go live  |  lightweight Windows capture",0,28,51,850,22);
   add(L"BUTTON",L"01   DESTINATION",BS_GROUPBOX,20,88,430,245);
@@ -236,7 +263,9 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   startButton=add(L"BUTTON",L"START CAPTURE / STREAM",BS_PUSHBUTTON|WS_TABSTOP,28,595,408,48,1);
   stopButton=add(L"BUTTON",L"STOP & FINALIZE",BS_PUSHBUTTON|WS_TABSTOP,456,595,408,48,2);
   state=add(L"STATIC",L"Ready  |  FFmpeg bundled  |  Choose a source to begin",0,28,662,838,40);
-  add(L"STATIC",L"Early alpha. No game audio yet. Stream keys are never saved.",0,28,719,836,25);
+  add(L"STATIC",L"Early alpha. No game audio yet. Stream keys are never saved.",0,28,719,620,25);
+  themeButton=add(L"BUTTON",L"",BS_OWNERDRAW|WS_TABSTOP,695,707,169,36,6);
+  applyTheme();
   select(mode,loadIndex(L"mode",0,2));select(service,loadIndex(L"service",0,3));
   serviceChanged();
   auto savedServer=load(L"server",L"");if(!savedServer.empty())SetWindowTextW(server,savedServer.c_str());
@@ -246,12 +275,27 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   select(encoder,loadIndex(L"encoder",0,2));select(updates,loadIndex(L"channel",1,2));
   select(sourceMode,loadIndex(L"sourceMode",0,2));listCapture();SetTimer(h,1,500,nullptr);SetTimer(h,2,3500,nullptr);refresh();return 0;
  }
+ case WM_DRAWITEM:{
+  const DRAWITEMSTRUCT* item=(const DRAWITEMSTRUCT*)l;
+  if(item->CtlID!=6)return FALSE;
+  RECT r=item->rcItem;
+  HBRUSH bg=CreateSolidBrush(darkMode?RGB(42,63,103):RGB(218,230,254));
+  HPEN pen=CreatePen(PS_SOLID,1,accent);
+  HGDIOBJ oldPen=SelectObject(item->hDC,pen);
+  HGDIOBJ oldBrush=SelectObject(item->hDC,bg);
+  RoundRect(item->hDC,r.left,r.top,r.right,r.bottom,16,16);
+  SetBkMode(item->hDC,TRANSPARENT);SetTextColor(item->hDC,ink);
+  wchar_t text[64]{};GetWindowTextW(item->hwndItem,text,64);
+  DrawTextW(item->hDC,text,-1,&r,DT_CENTER|DT_SINGLELINE|DT_VCENTER);
+  SelectObject(item->hDC,oldBrush);SelectObject(item->hDC,oldPen);DeleteObject(bg);DeleteObject(pen);
+  return TRUE;
+ }
  case WM_CTLCOLORSTATIC:
  case WM_CTLCOLORBTN:
  case WM_CTLCOLOREDIT:
  case WM_CTLCOLORLISTBOX:{
   HDC dc=(HDC)w;SetTextColor(dc,ink);SetBkColor(dc,canvas);
-  if(m==WM_CTLCOLOREDIT||m==WM_CTLCOLORLISTBOX)SetBkColor(dc,RGB(30,38,54));
+  if(m==WM_CTLCOLOREDIT||m==WM_CTLCOLORLISTBOX){SetBkColor(dc,fieldColor);return (LRESULT)fieldBrush;}
   return (LRESULT)darkBrush;
  }
  case WM_COMMAND:
@@ -259,6 +303,7 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   if(LOWORD(w)==2)stop();
   if(LOWORD(w)==3)checkUpdates(true);
   if(LOWORD(w)==4||((HWND)l==sourceMode&&HIWORD(w)==CBN_SELCHANGE))listCapture();
+  if(LOWORD(w)==6){darkMode=!darkMode;applyTheme();save();}
   if(LOWORD(w)==5){std::wstring p=logPath.empty()?cfg().substr(0,cfg().find_last_of(L"\\/")+1)+L"ffmpeg.log":logPath;ShellExecuteW(h,L"open",p.c_str(),nullptr,nullptr,SW_SHOWNORMAL);}
   if((HWND)l==service&&HIWORD(w)==CBN_SELCHANGE)serviceChanged();
   return 0;
@@ -274,7 +319,7 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
  case WM_CLOSE:
   if(process.hProcess){stop();MessageBoxW(h,L"Stop and finalize recording before closing.",L"LiteSR",MB_OK);return 0;}
   save();DestroyWindow(h);return 0;
- case WM_DESTROY:if(darkBrush){DeleteObject(darkBrush);darkBrush=nullptr;}PostQuitMessage(0);return 0;
+ case WM_DESTROY:if(darkBrush){DeleteObject(darkBrush);darkBrush=nullptr;}if(fieldBrush){DeleteObject(fieldBrush);fieldBrush=nullptr;}if(uiFont){DeleteObject(uiFont);uiFont=nullptr;}PostQuitMessage(0);return 0;
  }
  return DefWindowProcW(h,m,w,l);
 }
@@ -282,7 +327,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,LPWSTR,int show){
  WNDCLASSW wc{};wc.hInstance=instance;wc.lpfnWndProc=wnd;wc.lpszClassName=L"LiteSRMain";
  wc.hbrBackground=CreateSolidBrush(RGB(17,22,34));wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);
  RegisterClassW(&wc);
- HWND h=CreateWindowExW(0,L"LiteSRMain",L"LiteSR v0.2.0-alpha.10",WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX,
+ HWND h=CreateWindowExW(0,L"LiteSRMain",L"LiteSR v0.2.0-alpha.11",WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX,
  CW_USEDEFAULT,CW_USEDEFAULT,917,810,nullptr,nullptr,instance,nullptr);
  ShowWindow(h,show);MSG msg;
  while(GetMessageW(&msg,nullptr,0,0)>0){TranslateMessage(&msg);DispatchMessageW(&msg);}
