@@ -81,3 +81,6 @@ Move server URL, resolution, frame rate, bitrate, encoder and capture backend in
 
 ## Alpha.21 — integrated Settings workspace
 Replaces the separate popup window with a full-width Settings page inside LiteSR. Navigate with Settings, Save settings, and Back to Studio. Sections group Streaming/Output and Accessibility/Performance; the main Studio keeps the source preview, recording and streaming controls. Accessibility checkboxes now retain normal native checkbox behavior. This is an initial integrated-page capstone and still needs real Windows visual/usability testing, especially at narrow widths.
+
+## Alpha.22 — animated navigation and capture feedback
+Adds smooth slide-in transitions between the in-app Studio and Settings pages, a subtle animated recording/live indicator, and a persisted Reduce motion accessibility setting that disables both. Animations use an independent short UI timer and never alter the FFmpeg capture frame rate. If animations cause display problems, enable Reduce motion in Settings. Animation behavior and accessibility require real-machine visual testing.
