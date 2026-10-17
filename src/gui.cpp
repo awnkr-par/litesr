@@ -109,7 +109,7 @@ static void toggleFullscreen(){
 static std::wstring get(HWND h){int n=GetWindowTextLengthW(h);std::wstring s(n+1,L'\0');GetWindowTextW(h,s.data(),n+1);s.resize(n);return s;}
 static HWND add(const wchar_t* cls,const wchar_t* text,DWORD style,int x,int y,int w,int h,int id=0){
  if(wcscmp(cls,L"STATIC")==0)style|=SS_OWNERDRAW;
- if(wcscmp(cls,L"BUTTON")==0 && (style&BS_TYPEMASK)!=BS_GROUPBOX)style=(style&~BS_TYPEMASK)|BS_OWNERDRAW;
+ if(wcscmp(cls,L"BUTTON")==0 && (style&BS_TYPEMASK)!=BS_GROUPBOX && (style&BS_TYPEMASK)!=BS_AUTOCHECKBOX)style=(style&~BS_TYPEMASK)|BS_OWNERDRAW;
  HWND v=CreateWindowExW(0,cls,text,WS_CHILD|WS_VISIBLE|style,x,y,w,h,root,(HMENU)(INT_PTR)id,GetModuleHandleW(nullptr),nullptr);
  if(v)uiPositions.push_back({v,{x,y,x+w,y+h}});
  SendMessageW(v,WM_SETFONT,(WPARAM)(uiFont?uiFont:GetStockObject(DEFAULT_GUI_FONT)),TRUE);
@@ -566,6 +566,7 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
  case WM_KEYDOWN:if(w==VK_F11){toggleFullscreen();return 0;}if(w==VK_ESCAPE&&fullscreen){toggleFullscreen();return 0;}break;
  case WM_PAINT:{
   PAINTSTRUCT ps{};HDC dc=BeginPaint(h,&ps);
+  if(settingsVisible){EndPaint(h,&ps);return 0;}
   HBRUSH bg=CreateSolidBrush(darkMode?RGB(9,13,22):RGB(218,229,244));
   FillRect(dc,&previewArea,bg);DeleteObject(bg);
   int selectedIndex=sourceChoice?selection(sourceChoice):-1;
