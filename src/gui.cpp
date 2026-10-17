@@ -322,11 +322,11 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   updates=combo(906,737,155,{L"Stable",L"Beta / Alpha"},1);
   add(L"BUTTON",L"Check updates",BS_PUSHBUTTON,1071,737,153,32,3);
   add(L"BUTTON",L"View FFmpeg log",BS_PUSHBUTTON,906,779,152,32,5);
-  openFolderButton=add(L"BUTTON",L"Open recordings",BS_PUSHBUTTON,906,824,152,32,9);
+  openFolderButton=add(L"BUTTON",L"Open recordings",BS_PUSHBUTTON,1070,779,152,32,9);
   diskInfo=add(L"STATIC",L"Free disk: checking",0,580,791,307,27);
-  themeButton=add(L"BUTTON",L"",BS_OWNERDRAW|WS_TABSTOP,1070,779,154,32,6);
-  state=add(L"STATIC",L"Ready  |  FFmpeg included",0,27,826,780,36);
-  sessionInfo=add(L"STATIC",L"IDLE  |  F9 start / F10 stop",0,820,826,420,34);
+  themeButton=add(L"BUTTON",L"",BS_OWNERDRAW|WS_TABSTOP,1070,823,154,32,6);
+  state=add(L"STATIC",L"Ready  |  FFmpeg included",0,27,860,780,30);
+  sessionInfo=add(L"STATIC",L"IDLE  |  F9 start / F10 stop",0,820,860,420,30);
   applyTheme();
   select(mode,loadIndex(L"mode",0,2));select(service,loadIndex(L"service",0,3));
   serviceChanged();
