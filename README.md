@@ -78,3 +78,6 @@ An FFmpeg `-progress` telemetry file is stored at `%APPDATA%\\LiteSR\\capture-pr
 
 ## Alpha.20 — Settings and accessibility
 Move server URL, resolution, frame rate, bitrate, encoder and capture backend into the Settings dialog. The studio no longer shows the Stable/Beta selector (alpha builds check beta releases) or a fullscreen button (F11 / Escape still work). Accessibility settings include high contrast, larger text and reduced preview-update frequency, saved persistently. Stream keys remain on the studio and are never saved. Settings affect the next capture session; test keyboard navigation and sizing on Windows before relying on accessibility controls for critical operation.
+
+## Alpha.21 — integrated Settings workspace
+Replaces the separate popup window with a full-width Settings page inside LiteSR. Navigate with Settings, Save settings, and Back to Studio. Sections group Streaming/Output and Accessibility/Performance; the main Studio keeps the source preview, recording and streaming controls. Accessibility checkboxes now retain normal native checkbox behavior. This is an initial integrated-page capstone and still needs real Windows visual/usability testing, especially at narrow widths.
