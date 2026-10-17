@@ -342,7 +342,7 @@ static void start(){
   // Windows Desktop Duplication. FFmpeg's ddagrab returns D3D11 frames;
   // copy to CPU memory for the current encoder compatibility pipeline.
   int monitorIndex=selection(sourceChoice);
-  args.insert(args.end(),{L"-filter_complex",L"ddagrab=framerate="+std::to_wstring(fr)+L":output_idx="+std::to_wstring(monitorIndex)+L",hwdownload,format=bgra[v]",L"-map",L"[v]"});
+  args.insert(args.end(),{L"-filter_complex",L"ddagrab=framerate="+std::to_wstring(fr)+L":output_idx="+std::to_wstring(monitorIndex)+L",hwdownload,format=bgra[v]"});
  }else{
   args.insert(args.end(),{L"-f",L"gdigrab",L"-framerate",std::to_wstring(fr)});
   if(selected.display){
@@ -360,7 +360,8 @@ static void start(){
  }else if(isStreaming){
   args.insert(args.end(),{L"-f",L"lavfi",L"-i",L"anullsrc=channel_layout=stereo:sample_rate=44100"});
  }
- if(!usingDDA)args.insert(args.end(),{L"-map",L"0:v:0"});
+ if(usingDDA)args.insert(args.end(),{L"-map",L"[v]"});
+ else args.insert(args.end(),{L"-map",L"0:v:0"});
  if(mic||isStreaming)args.insert(args.end(),{L"-map",usingDDA?L"0:a:0":L"1:a:0"});
  else args.push_back(L"-an");
  args.insert(args.end(),{L"-vf",L"scale="+std::to_wstring(widths[r])+L":"+std::to_wstring(heights[r])+L",format=nv12"});
