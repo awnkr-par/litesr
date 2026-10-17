@@ -9,7 +9,7 @@ function Notify([string]$message) {
  if ($Manual) { [void][System.Windows.Forms.MessageBox]::Show($message,'LiteSR Updates','OK','Information') }
 }
 try {
- $installed = '0.2.0-alpha.21'
+ $installed = '0.2.0-alpha.22'
  $headers = @{ 'User-Agent' = 'LiteSR-Updater/0.2.0'; 'Accept' = 'application/vnd.github+json' }
  $releases = @(Invoke-RestMethod -Uri 'https://api.github.com/repos/awnkr-par/litesr/releases?per_page=30' -Headers $headers -TimeoutSec 20)
  $eligible = @($releases | Where-Object {
