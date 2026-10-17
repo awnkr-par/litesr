@@ -41,3 +41,11 @@ Replaces incorrectly themed standard Win32 text labels, dropdown items and butto
 
 ## Alpha.13 OBS-inspired studio
 Wide workspace with live low-rate GDI preview, scene/source docks, audio status, output configuration, stream controls and theme switch. Scene is currently single and audio mixing is not yet implemented; this is NOT OBS-compatible multi-layer compositing. Window preview uses visible desktop pixels and may not show obscured windows; capture itself still uses FFmpeg.
+
+## Capstone milestone alpha.14
+- Global F9 start and F10 stop hotkeys while LiteSR runs (hotkeys may conflict with other apps).
+- Live recording/streaming elapsed timer in the workspace.
+- Screen preview pause/resume button. Pausing reduces extra GDI preview work; it does not stop active FFmpeg capture.
+- Remember last chosen source label and preview preference in settings; if the source is unavailable, falls back to an available source.
+- Recording no longer silently overwrites an existing MP4: warns for existing file and uses FFmpeg `-n` as a second safeguard.
+- Continues to be an alpha: real audio, game-specific capture, true multi-scene compositing and measured recording FPS/bitrate statistics are not implemented. Windows GUI appearance/performance needs real-device validation.
