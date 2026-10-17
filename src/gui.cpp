@@ -50,7 +50,7 @@ static ULONGLONG captureStarted=0;
 static HWND previewButton{}, sessionInfo{};
 static std::wstring selectedCaptureLabel;
 static int selectedCaptureMode=0;
-static const wchar_t* buildVersion=L"0.2.0-alpha.17";
+static const wchar_t* buildVersion=L"0.2.0-alpha.18";
 static void layoutWorkspace(){
  if(!root||!layoutReady)return;
  RECT client{};GetClientRect(root,&client);
@@ -162,6 +162,12 @@ static void applyTheme(){
  }
 }
 static std::wstring recordingsFolder(){
+ // Create C:\\LiteSR when permissions allow. Do not require elevation.
+ const wchar_t* preferred=L"C:\\LiteSR";
+ if(CreateDirectoryW(preferred,nullptr)||GetLastError()==ERROR_ALREADY_EXISTS){
+  DWORD attr=GetFileAttributesW(preferred);
+  if(attr!=INVALID_FILE_ATTRIBUTES&&(attr&FILE_ATTRIBUTE_DIRECTORY))return preferred;
+ }
  wchar_t path[MAX_PATH]{};if(SUCCEEDED(SHGetFolderPathW(nullptr,CSIDL_MYVIDEO,nullptr,SHGFP_TYPE_CURRENT,path)))return std::wstring(path);
  return directory();
 }
@@ -412,7 +418,8 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   select(mode,loadIndex(L"mode",0,2));select(service,loadIndex(L"service",0,3));
   serviceChanged();
   auto savedServer=load(L"server",L"");if(!savedServer.empty())SetWindowTextW(server,savedServer.c_str());
-  SetWindowTextW(fileName,load(L"output",L"recording.mp4").c_str());
+  std::wstring defaultOutput=recordingsFolder()+L"\\recording.mp4";
+  SetWindowTextW(fileName,load(L"output",defaultOutput.c_str()).c_str());
   select(resolution,loadIndex(L"resolution",1,3));select(fps,loadIndex(L"fps",0,2));
   SetWindowTextW(bitrate,load(L"bitrate",L"3000").c_str());
   select(encoder,loadIndex(L"encoder",0,2));select(updates,loadIndex(L"channel",1,2));
@@ -549,7 +556,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,LPWSTR,int show){
  WNDCLASSW wc{};wc.hInstance=instance;wc.lpfnWndProc=wnd;wc.lpszClassName=L"LiteSRMain";
  wc.hbrBackground=(HBRUSH)(COLOR_WINDOW+1);wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);
  RegisterClassW(&wc);
- HWND h=CreateWindowExW(0,L"LiteSRMain",L"LiteSR v0.2.0-alpha.17",WS_OVERLAPPEDWINDOW,
+ HWND h=CreateWindowExW(0,L"LiteSRMain",L"LiteSR v0.2.0-alpha.18",WS_OVERLAPPEDWINDOW,
  CW_USEDEFAULT,CW_USEDEFAULT,1260,925,nullptr,nullptr,instance,nullptr);
  ShowWindow(h,show);MSG msg;
  while(GetMessageW(&msg,nullptr,0,0)>0){TranslateMessage(&msg);DispatchMessageW(&msg);}
