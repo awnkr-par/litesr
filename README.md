@@ -61,3 +61,9 @@ Wide workspace with live low-rate GDI preview, scene/source docks, audio status,
 
 ## Capstone 3: microphone capture (alpha.16)
 LiteSR now enumerates Windows microphone input devices and provides a Scan button. Choose a microphone to add a separate FFmpeg DirectShow audio input, encoded as 128-kbps AAC for MP4 recording and RTMP streaming. This replaces the previous silent-only streaming path when a microphone is selected; streams without a microphone still carry silent AAC for compatibility. Microphone selection is saved, not a recording of microphone data. Some DirectShow names differ from legacy Windows waveIn names and may need a different selection method; if recording stops immediately, inspect ffmpeg.log. No system/game audio capture or audio level meter yet. Test actual capture on Windows before relying on it.
+
+## Alpha.17 — fullscreen and responsive studio
+- The window can now be maximized or resized using the standard Windows title bar.
+- F11 or the **Fullscreen [F11]** button switches to true borderless fullscreen on the current monitor; F11 or Esc exits.
+- The workspace scales its preview and control positions to the available window size instead of remaining fixed at 1260×925.
+- Works independently of recording and streaming sessions. Layout and theme should be validated on different display resolutions; custom Win32 controls remain experimental.
