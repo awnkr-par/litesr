@@ -9,6 +9,8 @@
 #include <algorithm>
 #include <cstdint>
 #include <cwchar>
+#include <fstream>
+#include <sstream>
 #include <uxtheme.h>
 #include <mmsystem.h>
 #pragma comment(lib,"winmm.lib")
@@ -46,11 +48,15 @@ static std::wstring activeOutput;
 static HWND diskInfo{},browseButton{},openFolderButton{},qualityPreset{};
 static std::vector<std::wstring> microphoneDevices;
 static HWND audioRefreshButton{};
+static HWND captureBackend{},captureHealth{};
+static std::wstring progressPath;
+static int requestedFPS=30;
+static bool usingDDA=false;
 static ULONGLONG captureStarted=0;
 static HWND previewButton{}, sessionInfo{};
 static std::wstring selectedCaptureLabel;
 static int selectedCaptureMode=0;
-static const wchar_t* buildVersion=L"0.2.0-alpha.18";
+static const wchar_t* buildVersion=L"0.2.0-alpha.19";
 static void layoutWorkspace(){
  if(!root||!layoutReady)return;
  RECT client{};GetClientRect(root,&client);
@@ -128,6 +134,7 @@ static void save(){
  put(L"resolution",std::to_wstring(selection(resolution)));put(L"fps",std::to_wstring(selection(fps)));
  put(L"bitrate",get(bitrate));put(L"encoder",std::to_wstring(selection(encoder)));
  put(L"theme",darkMode?L"dark":L"light");
+ put(L"backend",std::to_wstring(selection(captureBackend)));
  put(L"sourceMode",std::to_wstring(selection(sourceMode)));
  put(L"sourceName",selectedCaptureLabel);
  put(L"preview",previewEnabled?L"1":L"0");
@@ -191,6 +198,26 @@ static void applyPreset(){
  if(p>=0&&p<3){select(resolution,resolutions[p]);select(fps,0);SetWindowTextW(bitrate,rates[p]);save();}
 }
 static void setStatus(const wchar_t* s){SetWindowTextW(state,s);}
+static void readCaptureHealth(){
+ if(!captureHealth||!process.hProcess||progressPath.empty())return;
+ std::ifstream input(progressPath,std::ios::binary);
+ if(!input)return;
+ std::string line;std::string fpsText,dropText,dupText,frameText,speedText;
+ while(std::getline(input,line)){
+  if(line.rfind("fps=",0)==0)fpsText=line.substr(4);
+  if(line.rfind("drop_frames=",0)==0)dropText=line.substr(12);
+  if(line.rfind("dup_frames=",0)==0)dupText=line.substr(11);
+  if(line.rfind("frame=",0)==0)frameText=line.substr(6);
+  if(line.rfind("speed=",0)==0)speedText=line.substr(6);
+ }
+ auto trim=[](std::string a){size_t p=a.find_first_not_of(" \t\r");return p==std::string::npos?std::string():a.substr(p);};
+ double fpsValue=0;try{fpsValue=std::stod(trim(fpsText));}catch(...){}
+ std::wstring summary=L"ENCODE FPS: "+std::to_wstring((int)(fpsValue+0.5))+L" / "+std::to_wstring(requestedFPS);
+ if(!dropText.empty())summary+=L"  |  DROPS: "+std::wstring(dropText.begin(),dropText.end());
+ if(!dupText.empty())summary+=L"  |  DUP: "+std::wstring(dupText.begin(),dupText.end());
+ if(!speedText.empty())summary+=L"  |  SPEED: "+std::wstring(speedText.begin(),speedText.end());
+ SetWindowTextW(captureHealth,summary.c_str());
+}
 static void refresh(){
  if(process.hProcess&&WaitForSingleObject(process.hProcess,0)==WAIT_OBJECT_0){
   DWORD exitCode=0;GetExitCodeProcess(process.hProcess,&exitCode);
@@ -198,6 +225,7 @@ static void refresh(){
   if(stdinPipe){CloseHandle(stdinPipe);stdinPipe=nullptr;}
   if(logHandle){CloseHandle(logHandle);logHandle=nullptr;}
   captureStarted=0;
+  if(captureHealth)SetWindowTextW(captureHealth,L"Capture stopped - check log for results.");
   if(!captureStreaming && !activeOutput.empty() && exitCode==0){
    std::wstring line=L"Recording completed: "+activeOutput;
    setStatus(line.c_str());
@@ -210,6 +238,7 @@ static void refresh(){
    std::wstring label=L"Free disk: "+std::to_wstring(freeBytes.QuadPart/(1024ULL*1024*1024))+L" GB";SetWindowTextW(diskInfo,label.c_str());
   }
  }
+ if(busy)readCaptureHealth();
  if(busy&&captureStarted){ULONGLONG sec=(GetTickCount64()-captureStarted)/1000;
   std::wstring info=std::wstring(captureStreaming?L"LIVE  |  ":L"RECORDING  |  ")+std::to_wstring(sec/3600)+L"h "+std::to_wstring((sec/60)%60)+L"m "+std::to_wstring(sec%60)+L"s  |  F10 to stop";
   if(sessionInfo)SetWindowTextW(sessionInfo,info.c_str());
@@ -282,6 +311,7 @@ static void start(){
  const int widths[]={854,1280,1920};const int heights[]={480,720,1080};
  int r=std::clamp(selection(resolution),0,2);
  int fr=selection(fps)==0?30:60;
+ requestedFPS=fr;
  std::wstring dest;
  if(isStreaming){
   std::wstring base=get(server),secret=get(key);
@@ -304,13 +334,24 @@ static void start(){
   MessageBoxW(root,L"Choose a capture source.",L"LiteSR",MB_OK);return;
  }
  auto selected=captures[(size_t)selection(sourceChoice)];
- std::vector<std::wstring> args={ff,L"-hide_banner",L"-loglevel",L"error",L"-f",L"gdigrab",L"-framerate",std::to_wstring(fr)};
- if(selected.display){
-  args.insert(args.end(),{L"-offset_x",std::to_wstring(selected.bounds.left),L"-offset_y",std::to_wstring(selected.bounds.top),
-  L"-video_size",std::to_wstring(selected.bounds.right-selected.bounds.left)+L"x"+std::to_wstring(selected.bounds.bottom-selected.bounds.top),L"-i",L"desktop"});
+ progressPath=cfg();progressPath=progressPath.substr(0,progressPath.find_last_of(L"\\/")+1)+L"capture-progress.txt";
+ DeleteFileW(progressPath.c_str());
+ std::vector<std::wstring> args={ff,L"-hide_banner",L"-loglevel",L"error",L"-stats_period",L"1",L"-progress",progressPath};
+ usingDDA=selection(captureBackend)==1&&selected.display;
+ if(usingDDA){
+  // Windows Desktop Duplication. FFmpeg's ddagrab returns D3D11 frames;
+  // copy to CPU memory for the current encoder compatibility pipeline.
+  int monitorIndex=selection(sourceChoice);
+  args.insert(args.end(),{L"-filter_complex",L"ddagrab=framerate="+std::to_wstring(fr)+L":output_idx="+std::to_wstring(monitorIndex)+L",hwdownload,format=bgra[v]",L"-map",L"[v]"});
  }else{
-  wchar_t handle[40]{};swprintf_s(handle,40,L"hwnd=0x%llx",(unsigned long long)(uintptr_t)selected.window);
-  args.insert(args.end(),{L"-i",handle});
+  args.insert(args.end(),{L"-f",L"gdigrab",L"-framerate",std::to_wstring(fr)});
+  if(selected.display){
+   args.insert(args.end(),{L"-offset_x",std::to_wstring(selected.bounds.left),L"-offset_y",std::to_wstring(selected.bounds.top),
+   L"-video_size",std::to_wstring(selected.bounds.right-selected.bounds.left)+L"x"+std::to_wstring(selected.bounds.bottom-selected.bounds.top),L"-i",L"desktop"});
+  }else{
+   wchar_t handle[40]{};swprintf_s(handle,40,L"hwnd=0x%llx",(unsigned long long)(uintptr_t)selected.window);
+   args.insert(args.end(),{L"-i",handle});
+  }
  }
  // The DirectShow microphone is a second FFmpeg input, mapped explicitly.
  int micIndex=selection(audio);bool mic=micIndex>0&&micIndex<=(int)microphoneDevices.size();
@@ -319,8 +360,8 @@ static void start(){
  }else if(isStreaming){
   args.insert(args.end(),{L"-f",L"lavfi",L"-i",L"anullsrc=channel_layout=stereo:sample_rate=44100"});
  }
- args.insert(args.end(),{L"-map",L"0:v:0"});
- if(mic||isStreaming)args.insert(args.end(),{L"-map",L"1:a:0"});
+ if(!usingDDA)args.insert(args.end(),{L"-map",L"0:v:0"});
+ if(mic||isStreaming)args.insert(args.end(),{L"-map",usingDDA?L"0:a:0":L"1:a:0"});
  else args.push_back(L"-an");
  args.insert(args.end(),{L"-vf",L"scale="+std::to_wstring(widths[r])+L":"+std::to_wstring(heights[r])+L",format=nv12"});
  if(selection(encoder)==0)args.insert(args.end(),{L"-c:v",L"h264_qsv",L"-preset",L"veryfast"});
@@ -370,6 +411,7 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   fullscreenButton=add(L"BUTTON",L"Fullscreen [F11]",BS_PUSHBUTTON,1034,14,193,32,11);
   add(L"STATIC",L"PREVIEW  -  selected capture source",0,27,58,560,28);
   previewButton=add(L"BUTTON",L"Preview: ON",BS_PUSHBUTTON,730,58,170,29,7);
+  captureBackend=combo(530,58,190,{L"GDI (compatible)",L"Desktop Duplication"});
   add(L"STATIC",L"OUTPUT SETTINGS",0,928,60,300,28);
   add(L"STATIC",L"Output",0,929,101,85,24);
   mode=combo(1022,97,206,{L"Record MP4",L"Live stream"});
@@ -411,6 +453,7 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   add(L"BUTTON",L"View FFmpeg log",BS_PUSHBUTTON,906,779,152,32,5);
   openFolderButton=add(L"BUTTON",L"Open recordings",BS_PUSHBUTTON,1070,779,152,32,9);
   diskInfo=add(L"STATIC",L"Free disk: checking",0,580,791,307,27);
+  captureHealth=add(L"STATIC",L"ENCODE FPS: waiting for capture",0,28,791,530,27);
   themeButton=add(L"BUTTON",L"",BS_OWNERDRAW|WS_TABSTOP,1070,823,154,32,6);
   state=add(L"STATIC",L"Ready  |  FFmpeg included",0,27,860,780,30);
   sessionInfo=add(L"STATIC",L"IDLE  |  F9 start / F10 stop",0,820,860,420,30);
@@ -425,6 +468,7 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   select(encoder,loadIndex(L"encoder",0,2));select(updates,loadIndex(L"channel",1,2));
   selectedCaptureLabel=load(L"sourceName",L"");previewEnabled=load(L"preview",L"1")!=L"0";
   SetWindowTextW(previewButton,previewEnabled?L"Preview: ON":L"Preview: OFF");
+  select(captureBackend,loadIndex(L"backend",0,2));
   select(sourceMode,loadIndex(L"sourceMode",0,2));listCapture();listMicrophones();
   auto micSaved=load(L"microphone",L"");for(size_t i=0;i<microphoneDevices.size();++i)if(microphoneDevices[i]==micSaved){select(audio,(int)i+1);break;}
   RegisterHotKey(h,91,MOD_NOREPEAT,VK_F9);RegisterHotKey(h,92,MOD_NOREPEAT,VK_F10);
@@ -526,6 +570,7 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   if(LOWORD(w)==11)toggleFullscreen();
   if(LOWORD(w)==10){listMicrophones();save();}
   if((HWND)l==audio&&HIWORD(w)==CBN_SELCHANGE)save();
+  if((HWND)l==captureBackend&&HIWORD(w)==CBN_SELCHANGE)save();
   if(LOWORD(w)==8)browseRecording();
   if(LOWORD(w)==9)openRecordingFolder();
   if((HWND)l==qualityPreset&&HIWORD(w)==CBN_SELCHANGE)applyPreset();
@@ -556,7 +601,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,LPWSTR,int show){
  WNDCLASSW wc{};wc.hInstance=instance;wc.lpfnWndProc=wnd;wc.lpszClassName=L"LiteSRMain";
  wc.hbrBackground=(HBRUSH)(COLOR_WINDOW+1);wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);
  RegisterClassW(&wc);
- HWND h=CreateWindowExW(0,L"LiteSRMain",L"LiteSR v0.2.0-alpha.18",WS_OVERLAPPEDWINDOW,
+ HWND h=CreateWindowExW(0,L"LiteSRMain",L"LiteSR v0.2.0-alpha.19",WS_OVERLAPPEDWINDOW,
  CW_USEDEFAULT,CW_USEDEFAULT,1260,925,nullptr,nullptr,instance,nullptr);
  ShowWindow(h,show);MSG msg;
  while(GetMessageW(&msg,nullptr,0,0)>0){TranslateMessage(&msg);DispatchMessageW(&msg);}
