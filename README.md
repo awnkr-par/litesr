@@ -70,3 +70,8 @@ LiteSR now enumerates Windows microphone input devices and provides a Scan butto
 
 ## Alpha.18 — C drive recording folder
 On launch LiteSR attempts to create `C:\\LiteSR` and uses `C:\\LiteSR\\recording.mp4` as the default path for new installations. If Windows denies creation at the drive root, it falls back to the user's Videos directory. Existing saved recording paths remain unchanged. The installer stays per-user and does not require administrator privileges.
+
+## Capstone alpha.19 — capture diagnostics and backend experiment
+LiteSR now offers a choice between the legacy FFmpeg `gdigrab` capture method and an experimental GPU-based Windows Desktop Duplication (`ddagrab`) source on monitor capture. The Desktop Duplication pipeline downloads frames back to CPU memory for encoder compatibility and is **not guaranteed to be faster**. Window capture retains GDI mode. If the experimental pipeline fails, select GDI and view the FFmpeg log. **Do not infer actual delivered recording FPS from the requested output FPS.**
+
+An FFmpeg `-progress` telemetry file is stored at `%APPDATA%\\LiteSR\\capture-progress.txt`, with the UI displaying reported encode FPS, duplicate/drop counters when present, and encode speed. These are FFmpeg encoder statistics, not independent graphics API capture metrics. It is intentionally a troubleshooting alpha and requires testing on a Windows device. This version does not claim to fix the earlier ~25 FPS recording until measured in a like-for-like trial.
