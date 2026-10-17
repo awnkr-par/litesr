@@ -17,6 +17,7 @@ static void applyTheme();
 static COLORREF ink=RGB(230,235,246);
 static COLORREF canvas=RGB(17,22,34);
 static COLORREF fieldColor=RGB(30,38,54);
+static COLORREF panelColor=RGB(24,33,51);
 static HWND sourceMode{},sourceChoice{};
 struct Capture{std::wstring label;RECT bounds{};HWND window{};bool display{};};
 static std::vector<Capture> captures;
@@ -26,16 +27,18 @@ static HANDLE stdinPipe{};
 static HANDLE logHandle{};
 static std::wstring logPath;
 static bool updateExitRequested=false;
-static const wchar_t* buildVersion=L"0.2.0-alpha.11";
+static const wchar_t* buildVersion=L"0.2.0-alpha.12";
 static std::wstring get(HWND h){int n=GetWindowTextLengthW(h);std::wstring s(n+1,L'\0');GetWindowTextW(h,s.data(),n+1);s.resize(n);return s;}
 static HWND add(const wchar_t* cls,const wchar_t* text,DWORD style,int x,int y,int w,int h,int id=0){
+ if(wcscmp(cls,L"STATIC")==0)style|=SS_OWNERDRAW;
+ if(wcscmp(cls,L"BUTTON")==0 && (style&BS_TYPEMASK)!=BS_GROUPBOX)style=(style&~BS_TYPEMASK)|BS_OWNERDRAW;
  HWND v=CreateWindowExW(0,cls,text,WS_CHILD|WS_VISIBLE|style,x,y,w,h,root,(HMENU)(INT_PTR)id,GetModuleHandleW(nullptr),nullptr);
  SendMessageW(v,WM_SETFONT,(WPARAM)(uiFont?uiFont:GetStockObject(DEFAULT_GUI_FONT)),TRUE);
  if(wcscmp(cls,L"COMBOBOX")==0||wcscmp(cls,L"EDIT")==0||wcscmp(cls,L"BUTTON")==0)SetWindowTheme(v,darkMode?L"DarkMode_Explorer":L"Explorer",nullptr);
  return v;
 }
 static HWND combo(int x,int y,int w,const std::vector<const wchar_t*>& options,int selected=0){
- HWND h=add(L"COMBOBOX",L"",CBS_DROPDOWNLIST|WS_TABSTOP,x,y,w,150);
+ HWND h=add(L"COMBOBOX",L"",CBS_DROPDOWNLIST|CBS_OWNERDRAWFIXED|CBS_HASSTRINGS|WS_TABSTOP,x,y,w,180);
  for(auto v:options)SendMessageW(h,CB_ADDSTRING,0,(LPARAM)v);
  SendMessageW(h,CB_SETCURSEL,selected,0);return h;
 }
@@ -72,13 +75,14 @@ static int loadIndex(const wchar_t* name,int fallback,int maximum){
 }
 static void applyTheme(){
  canvas=darkMode?RGB(17,22,34):RGB(244,247,253);
+ panelColor=darkMode?RGB(24,33,51):RGB(229,237,250);
  fieldColor=darkMode?RGB(30,38,54):RGB(255,255,255);
  ink=darkMode?RGB(230,235,246):RGB(31,45,73);
  if(darkBrush)DeleteObject(darkBrush);
  if(fieldBrush)DeleteObject(fieldBrush);
  darkBrush=CreateSolidBrush(canvas);fieldBrush=CreateSolidBrush(fieldColor);
  if(root){
-  SetWindowTextW(themeButton,darkMode?L"☀  Light mode":L"☾  Dark mode");
+  SetWindowTextW(themeButton,darkMode?L"Light theme":L"Dark theme");
   EnumChildWindows(root,[](HWND h,LPARAM mode)->BOOL{
    wchar_t cls[32]{};GetClassNameW(h,cls,32);
    if(wcscmp(cls,L"BUTTON")==0||wcscmp(cls,L"COMBOBOX")==0||wcscmp(cls,L"EDIT")==0)
@@ -225,7 +229,7 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   darkMode=(load(L"theme",L"dark")!=L"light");applyTheme();
   add(L"STATIC",L"LiteSR  /  CAPTURE STUDIO",0,28,20,850,28);
   add(L"STATIC",L"Record or go live  |  lightweight Windows capture",0,28,51,850,22);
-  add(L"BUTTON",L"01   DESTINATION",BS_GROUPBOX,20,88,430,245);
+  add(L"STATIC",L"01   DESTINATION",0,28,94,400,30);
   add(L"STATIC",L"Mode",0,38,120,105,22);
   mode=combo(158,116,272,{L"Record MP4",L"Live stream"});
   add(L"STATIC",L"Service",0,38,162,100,22);
@@ -236,14 +240,14 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   key=add(L"EDIT",L"",WS_BORDER|ES_PASSWORD|ES_AUTOHSCROLL,158,245,272,27);
   add(L"STATIC",L"Recording path",0,38,290,105,22);
   fileName=add(L"EDIT",L"recording.mp4",WS_BORDER|ES_AUTOHSCROLL,158,285,272,27);
-  add(L"BUTTON",L"02   CAPTURE SOURCE",BS_GROUPBOX,466,88,427,245);
+  add(L"STATIC",L"02   CAPTURE SOURCE",0,475,94,398,30);
   add(L"STATIC",L"Capture from",0,485,121,120,22);
   sourceMode=combo(624,116,248,{L"Monitor",L"Application window"});
   add(L"STATIC",L"Selected source",0,485,164,120,22);
   sourceChoice=combo(624,159,248,{});
   add(L"BUTTON",L"Refresh sources",BS_PUSHBUTTON,624,207,248,30,4);
   add(L"STATIC",L"Window capture may not support some fullscreen games.",0,485,257,390,40);
-  add(L"BUTTON",L"03   VIDEO QUALITY",BS_GROUPBOX,20,349,430,188);
+  add(L"STATIC",L"03   VIDEO QUALITY",0,28,357,400,30);
   add(L"STATIC",L"Resolution",0,38,390,110,22);
   resolution=combo(158,386,272,{L"480p  -  854 x 480",L"720p  -  1280 x 720",L"1080p  -  1920 x 1080"},1);
   add(L"STATIC",L"Frame rate",0,38,429,110,22);
@@ -252,7 +256,7 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   bitrate=add(L"EDIT",L"3000",WS_BORDER|ES_NUMBER,158,467,120,28);
   add(L"STATIC",L"Encoder",0,38,511,108,22);
   encoder=combo(158,507,272,{L"Intel Quick Sync",L"CPU x264"});
-  add(L"BUTTON",L"04   SYSTEM",BS_GROUPBOX,466,349,427,188);
+  add(L"STATIC",L"04   SYSTEM",0,475,357,398,30);
   add(L"STATIC",L"Audio input",0,485,392,130,22);
   audio=combo(624,387,248,{L"No audio - coming soon"});
   add(L"STATIC",L"Update channel",0,485,436,130,22);
@@ -275,20 +279,54 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   select(encoder,loadIndex(L"encoder",0,2));select(updates,loadIndex(L"channel",1,2));
   select(sourceMode,loadIndex(L"sourceMode",0,2));listCapture();SetTimer(h,1,500,nullptr);SetTimer(h,2,3500,nullptr);refresh();return 0;
  }
+ case WM_ERASEBKGND:{RECT r;GetClientRect(h,&r);HBRUSH b=CreateSolidBrush(canvas);FillRect((HDC)w,&r,b);DeleteObject(b);return 1;}
+ case WM_MEASUREITEM:{MEASUREITEMSTRUCT* mi=(MEASUREITEMSTRUCT*)l;mi->itemHeight=27;return TRUE;}
  case WM_DRAWITEM:{
   const DRAWITEMSTRUCT* item=(const DRAWITEMSTRUCT*)l;
-  if(item->CtlID!=6)return FALSE;
   RECT r=item->rcItem;
-  HBRUSH bg=CreateSolidBrush(darkMode?RGB(42,63,103):RGB(218,230,254));
-  HPEN pen=CreatePen(PS_SOLID,1,accent);
-  HGDIOBJ oldPen=SelectObject(item->hDC,pen);
-  HGDIOBJ oldBrush=SelectObject(item->hDC,bg);
-  RoundRect(item->hDC,r.left,r.top,r.right,r.bottom,16,16);
-  SetBkMode(item->hDC,TRANSPARENT);SetTextColor(item->hDC,ink);
-  wchar_t text[64]{};GetWindowTextW(item->hwndItem,text,64);
-  DrawTextW(item->hDC,text,-1,&r,DT_CENTER|DT_SINGLELINE|DT_VCENTER);
-  SelectObject(item->hDC,oldBrush);SelectObject(item->hDC,oldPen);DeleteObject(bg);DeleteObject(pen);
-  return TRUE;
+  if(item->CtlType==ODT_COMBOBOX){
+   HDC dc=item->hDC;HBRUSH bg=CreateSolidBrush(fieldColor);FillRect(dc,&r,bg);DeleteObject(bg);
+   if(item->itemID!=(UINT)-1){
+    wchar_t t[512]{};SendMessageW(item->hwndItem,CB_GETLBTEXT,item->itemID,(LPARAM)t);
+    bool selected=(item->itemState&ODS_SELECTED)!=0;
+    if(selected){HBRUSH b=CreateSolidBrush(darkMode?RGB(48,76,125):RGB(207,225,255));FillRect(dc,&r,b);DeleteObject(b);}
+    SetTextColor(dc,ink);SetBkMode(dc,TRANSPARENT);r.left+=9;
+    DrawTextW(dc,t,-1,&r,DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS);
+   }
+   return TRUE;
+  }
+  if(item->CtlType==ODT_STATIC){
+   HDC dc=item->hDC;
+   wchar_t label[768]{};GetWindowTextW(item->hwndItem,label,768);
+   bool heading=wcsstr(label,L"01   ")==label||wcsstr(label,L"02   ")==label||
+    wcsstr(label,L"03   ")==label||wcsstr(label,L"04   ")==label;
+   bool brand=wcsstr(label,L"LiteSR  /")==label;
+   HBRUSH b=CreateSolidBrush(heading?panelColor:canvas);
+   FillRect(dc,&r,b);DeleteObject(b);
+   SetBkMode(dc,TRANSPARENT);SetTextColor(dc,(heading||brand)?accent:ink);
+   RECT t=r;t.left+=heading?12:0;
+   DrawTextW(dc,label,-1,&t,DT_LEFT|DT_VCENTER|DT_WORDBREAK|DT_END_ELLIPSIS);
+   return TRUE;
+  }
+  if(item->CtlType==ODT_BUTTON){
+   HDC dc=item->hDC;bool active=(item->itemState&ODS_SELECTED)!=0;
+   bool disabled=(item->itemState&ODS_DISABLED)!=0;
+   bool primary=item->CtlID==1;
+   COLORREF bgColor=disabled?(darkMode?RGB(42,47,62):RGB(223,228,239)):
+    primary?(active?RGB(60,104,209):accent):
+    (active?(darkMode?RGB(59,76,110):RGB(208,223,248)):(darkMode?RGB(38,52,79):RGB(222,233,252)));
+   HBRUSH b=CreateSolidBrush(bgColor);HPEN p=CreatePen(PS_SOLID,1,primary?accent:(darkMode?RGB(69,93,136):RGB(183,202,231)));
+   HGDIOBJ ob=SelectObject(dc,b),op=SelectObject(dc,p);
+   RoundRect(dc,r.left+1,r.top+1,r.right-1,r.bottom-1,14,14);
+   SelectObject(dc,ob);SelectObject(dc,op);DeleteObject(b);DeleteObject(p);
+   SetBkMode(dc,TRANSPARENT);
+   SetTextColor(dc,disabled?(darkMode?RGB(128,138,155):RGB(143,153,169)):primary?RGB(255,255,255):ink);
+   wchar_t label[256]{};GetWindowTextW(item->hwndItem,label,256);
+   DrawTextW(dc,label,-1,&r,DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS);
+   if(item->itemState&ODS_FOCUS){RECT fr=r;InflateRect(&fr,-4,-4);DrawFocusRect(dc,&fr);}
+   return TRUE;
+  }
+  return FALSE;
  }
  case WM_CTLCOLORSTATIC:
  case WM_CTLCOLORBTN:
@@ -325,9 +363,9 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
 }
 int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,LPWSTR,int show){
  WNDCLASSW wc{};wc.hInstance=instance;wc.lpfnWndProc=wnd;wc.lpszClassName=L"LiteSRMain";
- wc.hbrBackground=CreateSolidBrush(RGB(17,22,34));wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);
+ wc.hbrBackground=(HBRUSH)(COLOR_WINDOW+1);wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);
  RegisterClassW(&wc);
- HWND h=CreateWindowExW(0,L"LiteSRMain",L"LiteSR v0.2.0-alpha.11",WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX,
+ HWND h=CreateWindowExW(0,L"LiteSRMain",L"LiteSR v0.2.0-alpha.12",WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX,
  CW_USEDEFAULT,CW_USEDEFAULT,917,810,nullptr,nullptr,instance,nullptr);
  ShowWindow(h,show);MSG msg;
  while(GetMessageW(&msg,nullptr,0,0)>0){TranslateMessage(&msg);DispatchMessageW(&msg);}
