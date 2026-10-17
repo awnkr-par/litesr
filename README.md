@@ -67,3 +67,6 @@ LiteSR now enumerates Windows microphone input devices and provides a Scan butto
 - F11 or the **Fullscreen [F11]** button switches to true borderless fullscreen on the current monitor; F11 or Esc exits.
 - The workspace scales its preview and control positions to the available window size instead of remaining fixed at 1260×925.
 - Works independently of recording and streaming sessions. Layout and theme should be validated on different display resolutions; custom Win32 controls remain experimental.
+
+## Alpha.18 — C drive recording folder
+On launch LiteSR attempts to create `C:\\LiteSR` and uses `C:\\LiteSR\\recording.mp4` as the default path for new installations. If Windows denies creation at the drive root, it falls back to the user's Videos directory. Existing saved recording paths remain unchanged. The installer stays per-user and does not require administrator privileges.
