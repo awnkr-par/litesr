@@ -10,6 +10,8 @@
 #include <cstdint>
 #include <cwchar>
 #include <uxtheme.h>
+#include <mmsystem.h>
+#pragma comment(lib,"winmm.lib")
 #pragma comment(lib,"uxtheme.lib")
 static HBRUSH darkBrush{},fieldBrush{};
 static bool darkMode=true;
@@ -34,11 +36,13 @@ static bool updateExitRequested=false;
 static bool captureStreaming=false,previewEnabled=true;
 static std::wstring activeOutput;
 static HWND diskInfo{},browseButton{},openFolderButton{},qualityPreset{};
+static std::vector<std::wstring> microphoneDevices;
+static HWND audioRefreshButton{};
 static ULONGLONG captureStarted=0;
 static HWND previewButton{}, sessionInfo{};
 static std::wstring selectedCaptureLabel;
 static int selectedCaptureMode=0;
-static const wchar_t* buildVersion=L"0.2.0-alpha.15";
+static const wchar_t* buildVersion=L"0.2.0-alpha.16";
 static std::wstring get(HWND h){int n=GetWindowTextLengthW(h);std::wstring s(n+1,L'\0');GetWindowTextW(h,s.data(),n+1);s.resize(n);return s;}
 static HWND add(const wchar_t* cls,const wchar_t* text,DWORD style,int x,int y,int w,int h,int id=0){
  if(wcscmp(cls,L"STATIC")==0)style|=SS_OWNERDRAW;
@@ -76,6 +80,7 @@ static void save(){
  put(L"sourceMode",std::to_wstring(selection(sourceMode)));
  put(L"sourceName",selectedCaptureLabel);
  put(L"preview",previewEnabled?L"1":L"0");
+ put(L"microphone",selection(audio)>0&&selection(audio)<=(int)microphoneDevices.size()?microphoneDevices[(size_t)selection(audio)-1]:L"");
  put(L"audio",std::to_wstring(selection(audio)));put(L"channel",std::to_wstring(selection(updates)));
  // Stream keys are deliberately never written to disk.
 }
@@ -188,6 +193,21 @@ static void listCapture(){
  int chosen=0;for(int i=0;i<(int)captures.size();++i)if(captures[(size_t)i].label==prev){chosen=i;break;}
  if(!captures.empty()){select(sourceChoice,chosen);selectedCaptureLabel=captures[(size_t)chosen].label;}
 }
+static void listMicrophones(){
+ int old=selection(audio);std::wstring prior=(old>0&&old<=(int)microphoneDevices.size())?microphoneDevices[(size_t)old-1]:L"";
+ microphoneDevices.clear();SendMessageW(audio,CB_RESETCONTENT,0,0);
+ SendMessageW(audio,CB_ADDSTRING,0,(LPARAM)L"No microphone");
+ UINT count=waveInGetNumDevs();
+ for(UINT i=0;i<count;i++){WAVEINCAPSW caps{};
+  if(waveInGetDevCapsW(i,&caps,sizeof(caps))==MMSYSERR_NOERROR){
+   std::wstring name=caps.szPname;microphoneDevices.push_back(name);
+   SendMessageW(audio,CB_ADDSTRING,0,(LPARAM)name.c_str());
+  }
+ }
+ int chosen=0;
+ for(size_t i=0;i<microphoneDevices.size();++i)if(microphoneDevices[i]==prior)chosen=(int)i+1;
+ select(audio,chosen);
+}
 static void serviceChanged(){
  int n=selection(service);
  if(n==0)SetWindowTextW(server,L"rtmps://a.rtmp.youtube.com/live2");
@@ -235,15 +255,23 @@ static void start(){
   wchar_t handle[40]{};swprintf_s(handle,40,L"hwnd=0x%llx",(unsigned long long)(uintptr_t)selected.window);
   args.insert(args.end(),{L"-i",handle});
  }
- // Video capture is operational. Audio capture is not advertised until device enumeration is implemented.
- if(isStreaming){args.insert(args.end(),{L"-f",L"lavfi",L"-i",L"anullsrc=channel_layout=stereo:sample_rate=44100",L"-map",L"0:v:0",L"-map",L"1:a:0"});}
+ // The DirectShow microphone is a second FFmpeg input, mapped explicitly.
+ int micIndex=selection(audio);bool mic=micIndex>0&&micIndex<=(int)microphoneDevices.size();
+ if(mic){
+  args.insert(args.end(),{L"-f",L"dshow",L"-audio_buffer_size",L"100",L"-i",L"audio="+microphoneDevices[(size_t)micIndex-1]});
+ }else if(isStreaming){
+  args.insert(args.end(),{L"-f",L"lavfi",L"-i",L"anullsrc=channel_layout=stereo:sample_rate=44100"});
+ }
+ args.insert(args.end(),{L"-map",L"0:v:0"});
+ if(mic||isStreaming)args.insert(args.end(),{L"-map",L"1:a:0"});
  else args.push_back(L"-an");
  args.insert(args.end(),{L"-vf",L"scale="+std::to_wstring(widths[r])+L":"+std::to_wstring(heights[r])+L",format=nv12"});
  if(selection(encoder)==0)args.insert(args.end(),{L"-c:v",L"h264_qsv",L"-preset",L"veryfast"});
  else args.insert(args.end(),{L"-c:v",L"libx264",L"-preset",L"ultrafast",L"-tune",L"zerolatency"});
  args.insert(args.end(),{L"-b:v",std::to_wstring(rate)+L"k",L"-maxrate",std::to_wstring(rate)+L"k",
   L"-bufsize",std::to_wstring(rate*2)+L"k",L"-g",std::to_wstring(fr*2)});
- if(isStreaming)args.insert(args.end(),{L"-c:a",L"aac",L"-b:a",L"128k",L"-ar",L"44100",L"-shortest",L"-f",L"flv",dest});
+ if(mic||isStreaming)args.insert(args.end(),{L"-c:a",L"aac",L"-b:a",L"128k",L"-ar",L"44100"});
+ if(isStreaming)args.insert(args.end(),{L"-f",L"flv",dest});
  else args.insert(args.end(),{L"-n",L"-movflags",L"+faststart",dest});
  std::wstring cmd;
  for(const auto& a:args){if(!cmd.empty())cmd+=L" ";cmd+=quote(a);}
@@ -313,9 +341,10 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   sourceChoice=combo(260,669,290,{});
   add(L"BUTTON",L"Refresh sources",BS_PUSHBUTTON,260,716,290,34,4);
   add(L"STATIC",L"AUDIO MIXER",0,581,585,290,28);
-  add(L"STATIC",L"No audio devices configured.",0,589,639,279,26);
-  add(L"STATIC",L"Audio recording is not implemented yet.",0,589,678,284,56);
-  audio=combo(590,736,270,{L"Audio capture unavailable"});
+  add(L"STATIC",L"MICROPHONE  /  DIRECTSHOW",0,589,639,279,26);
+  add(L"STATIC",L"Audio source for recordings and streams.",0,589,678,284,45);
+  audio=combo(590,736,211,{L"No microphone"});
+  audioRefreshButton=add(L"BUTTON",L"Scan",BS_PUSHBUTTON,805,736,61,28,10);
   add(L"STATIC",L"CONTROLS",0,901,585,324,28);
   startButton=add(L"BUTTON",L"Start recording / streaming",BS_PUSHBUTTON|WS_TABSTOP,906,621,318,46,1);
   stopButton=add(L"BUTTON",L"Stop and finalize",BS_PUSHBUTTON|WS_TABSTOP,906,677,318,43,2);
@@ -337,7 +366,8 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   select(encoder,loadIndex(L"encoder",0,2));select(updates,loadIndex(L"channel",1,2));
   selectedCaptureLabel=load(L"sourceName",L"");previewEnabled=load(L"preview",L"1")!=L"0";
   SetWindowTextW(previewButton,previewEnabled?L"Preview: ON":L"Preview: OFF");
-  select(sourceMode,loadIndex(L"sourceMode",0,2));listCapture();
+  select(sourceMode,loadIndex(L"sourceMode",0,2));listCapture();listMicrophones();
+  auto micSaved=load(L"microphone",L"");for(size_t i=0;i<microphoneDevices.size();++i)if(microphoneDevices[i]==micSaved){select(audio,(int)i+1);break;}
   RegisterHotKey(h,91,MOD_NOREPEAT,VK_F9);RegisterHotKey(h,92,MOD_NOREPEAT,VK_F10);
   SetTimer(h,1,1000,nullptr);SetTimer(h,2,3500,nullptr);refresh();return 0;
  }
@@ -431,6 +461,8 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   if(LOWORD(w)==3)checkUpdates(true);
   if(LOWORD(w)==4||((HWND)l==sourceMode&&HIWORD(w)==CBN_SELCHANGE))listCapture();
   if((HWND)l==sourceChoice&&HIWORD(w)==CBN_SELCHANGE){int i=selection(sourceChoice);if(i>=0&&i<(int)captures.size())selectedCaptureLabel=captures[(size_t)i].label;save();InvalidateRect(root,&previewArea,FALSE);}
+  if(LOWORD(w)==10){listMicrophones();save();}
+  if((HWND)l==audio&&HIWORD(w)==CBN_SELCHANGE)save();
   if(LOWORD(w)==8)browseRecording();
   if(LOWORD(w)==9)openRecordingFolder();
   if((HWND)l==qualityPreset&&HIWORD(w)==CBN_SELCHANGE)applyPreset();
@@ -461,7 +493,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,LPWSTR,int show){
  WNDCLASSW wc{};wc.hInstance=instance;wc.lpfnWndProc=wnd;wc.lpszClassName=L"LiteSRMain";
  wc.hbrBackground=(HBRUSH)(COLOR_WINDOW+1);wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);
  RegisterClassW(&wc);
- HWND h=CreateWindowExW(0,L"LiteSRMain",L"LiteSR v0.2.0-alpha.15",WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX,
+ HWND h=CreateWindowExW(0,L"LiteSRMain",L"LiteSR v0.2.0-alpha.16",WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX,
  CW_USEDEFAULT,CW_USEDEFAULT,1260,925,nullptr,nullptr,instance,nullptr);
  ShowWindow(h,show);MSG msg;
  while(GetMessageW(&msg,nullptr,0,0)>0){TranslateMessage(&msg);DispatchMessageW(&msg);}
