@@ -554,7 +554,7 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   // Technical controls live in Settings, not on the studio surface.
   for(const auto& entry:uiPositions){
    int x=entry.bounds.left,y=entry.bounds.top;
-   if((x>=920&&((y>=180&&y<=302)||(y>=372&&y<=555)))||(x==530&&y==58))ShowWindow(entry.h,SW_HIDE);
+   if((x>=920&&((y==187||y==210)||(y>=372&&y<=555)))||(x==530&&y==58))ShowWindow(entry.h,SW_HIDE);
   }
   layoutReady=true;layoutWorkspace();
   SetTimer(h,1,reducedPreview?2500:1000,nullptr);SetTimer(h,2,3500,nullptr);refresh();return 0;
