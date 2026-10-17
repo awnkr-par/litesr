@@ -38,3 +38,6 @@ MazClient-inspired blue-accented studio theme with a bottom-right Light/Dark but
 
 ## alpha.12 display fix
 Replaces incorrectly themed standard Win32 text labels, dropdown items and buttons with theme-aware custom drawn controls. Removes clashing native groupbox outlines and uses plain text theme labels to avoid encoding problems. This update addresses reported mixed white and dark rendering in Windows 11.
+
+## Alpha.13 OBS-inspired studio
+Wide workspace with live low-rate GDI preview, scene/source docks, audio status, output configuration, stream controls and theme switch. Scene is currently single and audio mixing is not yet implemented; this is NOT OBS-compatible multi-layer compositing. Window preview uses visible desktop pixels and may not show obscured windows; capture itself still uses FFmpeg.
