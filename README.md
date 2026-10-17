@@ -49,3 +49,12 @@ Wide workspace with live low-rate GDI preview, scene/source docks, audio status,
 - Remember last chosen source label and preview preference in settings; if the source is unavailable, falls back to an available source.
 - Recording no longer silently overwrites an existing MP4: warns for existing file and uses FFmpeg `-n` as a second safeguard.
 - Continues to be an alpha: real audio, game-specific capture, true multi-scene compositing and measured recording FPS/bitrate statistics are not implemented. Windows GUI appearance/performance needs real-device validation.
+
+## Capstone 2: alpha.15 recording workflow
+- Browse for a recording location using the Windows Save As dialog; existing output files are still protected against overwrite.
+- Open the recording folder from the studio.
+- Three capture presets (Low impact 480p30/1200kbps, Balanced 720p30/2500kbps, High quality 1080p30/4500kbps). Settings remain editable after applying a preset.
+- Free disk space indicator, updated periodically.
+- Completed recording path appears in the status line when FFmpeg reports a successful exit.
+- Preview refresh reduced from 2 to 1 times per second to reduce UI overhead; this is not a GPU capture pipeline.
+- Known issues: No microphone/system audio, no real scene compositor or true stream connection feedback; visual layout still requires testing on Windows hardware.
