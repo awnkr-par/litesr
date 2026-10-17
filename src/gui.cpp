@@ -1,6 +1,9 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <shellapi.h>
+#include <commdlg.h>
+#include <shlobj.h>
+#pragma comment(lib,"comdlg32.lib")
 #include <string>
 #include <vector>
 #include <algorithm>
@@ -29,11 +32,13 @@ static HANDLE logHandle{};
 static std::wstring logPath;
 static bool updateExitRequested=false;
 static bool captureStreaming=false,previewEnabled=true;
+static std::wstring activeOutput;
+static HWND diskInfo{},browseButton{},openFolderButton{},qualityPreset{};
 static ULONGLONG captureStarted=0;
 static HWND previewButton{}, sessionInfo{};
 static std::wstring selectedCaptureLabel;
 static int selectedCaptureMode=0;
-static const wchar_t* buildVersion=L"0.2.0-alpha.14";
+static const wchar_t* buildVersion=L"0.2.0-alpha.15";
 static std::wstring get(HWND h){int n=GetWindowTextLengthW(h);std::wstring s(n+1,L'\0');GetWindowTextW(h,s.data(),n+1);s.resize(n);return s;}
 static HWND add(const wchar_t* cls,const wchar_t* text,DWORD style,int x,int y,int w,int h,int id=0){
  if(wcscmp(cls,L"STATIC")==0)style|=SS_OWNERDRAW;
@@ -100,6 +105,29 @@ static void applyTheme(){
   InvalidateRect(root,nullptr,TRUE);
  }
 }
+static std::wstring recordingsFolder(){
+ wchar_t path[MAX_PATH]{};if(SUCCEEDED(SHGetFolderPathW(nullptr,CSIDL_MYVIDEO,nullptr,SHGFP_TYPE_CURRENT,path)))return std::wstring(path);
+ return directory();
+}
+static void openRecordingFolder(){
+ std::wstring file=get(fileName);std::wstring folder=recordingsFolder();
+ size_t slash=file.find_last_of(L"\\/");if(slash!=std::wstring::npos)folder=file.substr(0,slash);
+ ShellExecuteW(root,L"open",folder.c_str(),nullptr,nullptr,SW_SHOWNORMAL);
+}
+static void browseRecording(){
+ wchar_t path[MAX_PATH]{};std::wstring current=get(fileName);
+ if(!current.empty()&&current.size()<MAX_PATH)wcscpy_s(path,MAX_PATH,current.c_str());
+ OPENFILENAMEW d{};d.lStructSize=sizeof(d);d.hwndOwner=root;
+ d.lpstrFilter=L"MP4 video (*.mp4)\0*.mp4\0All files (*.*)\0*.*\0\0";
+ d.lpstrFile=path;d.nMaxFile=MAX_PATH;d.lpstrDefExt=L"mp4";
+ d.Flags=OFN_PATHMUSTEXIST|OFN_OVERWRITEPROMPT;
+ if(GetSaveFileNameW(&d))SetWindowTextW(fileName,path);
+}
+static void applyPreset(){
+ int p=selection(qualityPreset);
+ const int resolutions[]={0,1,2};const wchar_t* rates[]={L"1200",L"2500",L"4500"};
+ if(p>=0&&p<3){select(resolution,resolutions[p]);select(fps,0);SetWindowTextW(bitrate,rates[p]);save();}
+}
 static void setStatus(const wchar_t* s){SetWindowTextW(state,s);}
 static void refresh(){
  if(process.hProcess&&WaitForSingleObject(process.hProcess,0)==WAIT_OBJECT_0){
@@ -108,10 +136,18 @@ static void refresh(){
   if(stdinPipe){CloseHandle(stdinPipe);stdinPipe=nullptr;}
   if(logHandle){CloseHandle(logHandle);logHandle=nullptr;}
   captureStarted=0;
-  setStatus(exitCode==0?L"Stopped normally.":L"FFmpeg stopped with an error. Check encoder or stream settings.");
+  if(!captureStreaming && !activeOutput.empty() && exitCode==0){
+   std::wstring line=L"Recording completed: "+activeOutput;
+   setStatus(line.c_str());
+  }else setStatus(exitCode==0?L"Stopped normally.":L"FFmpeg stopped with an error. Check encoder or stream settings.");
  }
  if(updateExitRequested&&!process.hProcess){save();DestroyWindow(root);return;}
  bool busy=process.hProcess!=nullptr;
+ if(diskInfo){std::wstring p=get(fileName);std::wstring dir=recordingsFolder();size_t slash=p.find_last_of(L"\\/");if(slash!=std::wstring::npos)dir=p.substr(0,slash);
+  ULARGE_INTEGER freeBytes{};if(GetDiskFreeSpaceExW(dir.c_str(),&freeBytes,nullptr,nullptr)){
+   std::wstring label=L"Free disk: "+std::to_wstring(freeBytes.QuadPart/(1024ULL*1024*1024))+L" GB";SetWindowTextW(diskInfo,label.c_str());
+  }
+ }
  if(busy&&captureStarted){ULONGLONG sec=(GetTickCount64()-captureStarted)/1000;
   std::wstring info=std::wstring(captureStreaming?L"LIVE  |  ":L"RECORDING  |  ")+std::to_wstring(sec/3600)+L"h "+std::to_wstring((sec/60)%60)+L"m "+std::to_wstring(sec%60)+L"s  |  F10 to stop";
   if(sessionInfo)SetWindowTextW(sessionInfo,info.c_str());
@@ -224,7 +260,7 @@ static void start(){
  BOOL ok=CreateProcessW(ff.c_str(),buffer.data(),nullptr,nullptr,TRUE,CREATE_NO_WINDOW,nullptr,nullptr,&si,&process);
  CloseHandle(read);
  if(!ok){CloseHandle(write);if(logHandle){CloseHandle(logHandle);logHandle=nullptr;}process={};setStatus(L"Failed launching FFmpeg.");return;}
- stdinPipe=write;captureStarted=GetTickCount64();captureStreaming=isStreaming;save();setStatus(isStreaming?L"Stream launched. Confirm live signal on platform.":L"Recording started.");refresh();
+ stdinPipe=write;activeOutput=isStreaming?L"":dest;captureStarted=GetTickCount64();captureStreaming=isStreaming;save();setStatus(isStreaming?L"Stream launched. Confirm live signal on platform.":L"Recording started.");refresh();
 }
 static void checkUpdates(bool manual){
  std::wstring script=directory()+L"updater\\update.ps1";
@@ -258,15 +294,18 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   add(L"STATIC",L"Stream key",0,929,250,120,22);
   key=add(L"EDIT",L"",WS_BORDER|ES_PASSWORD|ES_AUTOHSCROLL,928,274,300,28);
   add(L"STATIC",L"Recording filename",0,929,317,280,22);
-  fileName=add(L"EDIT",L"recording.mp4",WS_BORDER|ES_AUTOHSCROLL,928,341,300,28);
-  add(L"STATIC",L"Resolution",0,929,388,120,22);
-  resolution=combo(1045,382,183,{L"480p 854x480",L"720p 1280x720",L"1080p 1920x1080"},1);
-  add(L"STATIC",L"FPS",0,929,425,100,22);
-  fps=combo(1045,422,183,{L"30 FPS",L"60 FPS"});
-  add(L"STATIC",L"Bitrate kbps",0,929,463,130,22);
-  bitrate=add(L"EDIT",L"3000",WS_BORDER|ES_NUMBER,1045,460,183,27);
-  add(L"STATIC",L"Encoder",0,929,503,120,22);
-  encoder=combo(1045,498,183,{L"Intel Quick Sync",L"CPU x264"});
+  fileName=add(L"EDIT",L"recording.mp4",WS_BORDER|ES_AUTOHSCROLL,928,341,222,28);
+  browseButton=add(L"BUTTON",L"Browse",BS_PUSHBUTTON,1157,341,71,28,8);
+  add(L"STATIC",L"QUALITY PRESET",0,929,377,120,22);
+  qualityPreset=combo(1051,372,177,{L"Low impact",L"Balanced",L"High quality"},1);
+  add(L"STATIC",L"Resolution",0,929,418,120,22);
+  resolution=combo(1045,412,183,{L"480p 854x480",L"720p 1280x720",L"1080p 1920x1080"},1);
+  add(L"STATIC",L"FPS",0,929,458,100,22);
+  fps=combo(1045,451,183,{L"30 FPS",L"60 FPS"});
+  add(L"STATIC",L"Bitrate kbps",0,929,491,130,22);
+  bitrate=add(L"EDIT",L"3000",WS_BORDER|ES_NUMBER,1045,488,183,27);
+  add(L"STATIC",L"Encoder",0,929,532,120,22);
+  encoder=combo(1045,528,183,{L"Intel Quick Sync",L"CPU x264"});
   add(L"STATIC",L"SCENES",0,28,585,192,26);
   add(L"STATIC",L"Main scene",0,30,630,194,26);
   add(L"STATIC",L"SOURCES",0,251,585,304,26);
@@ -283,6 +322,8 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   updates=combo(906,737,155,{L"Stable",L"Beta / Alpha"},1);
   add(L"BUTTON",L"Check updates",BS_PUSHBUTTON,1071,737,153,32,3);
   add(L"BUTTON",L"View FFmpeg log",BS_PUSHBUTTON,906,779,152,32,5);
+  openFolderButton=add(L"BUTTON",L"Open recordings",BS_PUSHBUTTON,906,824,152,32,9);
+  diskInfo=add(L"STATIC",L"Free disk: checking",0,580,791,307,27);
   themeButton=add(L"BUTTON",L"",BS_OWNERDRAW|WS_TABSTOP,1070,779,154,32,6);
   state=add(L"STATIC",L"Ready  |  FFmpeg included",0,27,826,780,36);
   sessionInfo=add(L"STATIC",L"IDLE  |  F9 start / F10 stop",0,820,826,420,34);
@@ -298,7 +339,7 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   SetWindowTextW(previewButton,previewEnabled?L"Preview: ON":L"Preview: OFF");
   select(sourceMode,loadIndex(L"sourceMode",0,2));listCapture();
   RegisterHotKey(h,91,MOD_NOREPEAT,VK_F9);RegisterHotKey(h,92,MOD_NOREPEAT,VK_F10);
-  SetTimer(h,1,500,nullptr);SetTimer(h,2,3500,nullptr);refresh();return 0;
+  SetTimer(h,1,1000,nullptr);SetTimer(h,2,3500,nullptr);refresh();return 0;
  }
  case WM_PAINT:{
   PAINTSTRUCT ps{};HDC dc=BeginPaint(h,&ps);
@@ -390,6 +431,9 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   if(LOWORD(w)==3)checkUpdates(true);
   if(LOWORD(w)==4||((HWND)l==sourceMode&&HIWORD(w)==CBN_SELCHANGE))listCapture();
   if((HWND)l==sourceChoice&&HIWORD(w)==CBN_SELCHANGE){int i=selection(sourceChoice);if(i>=0&&i<(int)captures.size())selectedCaptureLabel=captures[(size_t)i].label;save();InvalidateRect(root,&previewArea,FALSE);}
+  if(LOWORD(w)==8)browseRecording();
+  if(LOWORD(w)==9)openRecordingFolder();
+  if((HWND)l==qualityPreset&&HIWORD(w)==CBN_SELCHANGE)applyPreset();
   if(LOWORD(w)==7){previewEnabled=!previewEnabled;SetWindowTextW(previewButton,previewEnabled?L"Preview: ON":L"Preview: OFF");save();InvalidateRect(h,&previewArea,FALSE);}
   if(LOWORD(w)==6){darkMode=!darkMode;applyTheme();save();}
   if(LOWORD(w)==5){std::wstring p=logPath.empty()?cfg().substr(0,cfg().find_last_of(L"\\/")+1)+L"ffmpeg.log":logPath;ShellExecuteW(h,L"open",p.c_str(),nullptr,nullptr,SW_SHOWNORMAL);}
@@ -417,7 +461,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,LPWSTR,int show){
  WNDCLASSW wc{};wc.hInstance=instance;wc.lpfnWndProc=wnd;wc.lpszClassName=L"LiteSRMain";
  wc.hbrBackground=(HBRUSH)(COLOR_WINDOW+1);wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);
  RegisterClassW(&wc);
- HWND h=CreateWindowExW(0,L"LiteSRMain",L"LiteSR v0.2.0-alpha.14",WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX,
+ HWND h=CreateWindowExW(0,L"LiteSRMain",L"LiteSR v0.2.0-alpha.15",WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX,
  CW_USEDEFAULT,CW_USEDEFAULT,1260,925,nullptr,nullptr,instance,nullptr);
  ShowWindow(h,show);MSG msg;
  while(GetMessageW(&msg,nullptr,0,0)>0){TranslateMessage(&msg);DispatchMessageW(&msg);}
