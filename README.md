@@ -32,3 +32,6 @@ Streaming now includes a silent stereo AAC track (real microphone and game audio
 The studio layout now groups destination, capture source, video quality, and application controls. After you approve an update, LiteSR finishes an active recording or stream, closes itself, and the updater waits for exit before running the new installer. No unattended software installation; consent is required. The current updater should be tested on a real Windows machine and remains unsigned.
 
 Alpha.10 adds a darker studio appearance, while retaining the consent-based updater and shutdown handshake from alpha.9. Theme support varies by Windows release.
+
+## Appearance (alpha.11)
+MazClient-inspired blue-accented studio theme with a bottom-right Light/Dark button. Your preference is stored in `%APPDATA%\\LiteSR\\settings.ini`, applies immediately, and persists after restart. The design uses native Win32 controls; custom themes may vary slightly by Windows release.
