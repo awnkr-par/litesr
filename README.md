@@ -58,3 +58,6 @@ Wide workspace with live low-rate GDI preview, scene/source docks, audio status,
 - Completed recording path appears in the status line when FFmpeg reports a successful exit.
 - Preview refresh reduced from 2 to 1 times per second to reduce UI overhead; this is not a GPU capture pipeline.
 - Known issues: No microphone/system audio, no real scene compositor or true stream connection feedback; visual layout still requires testing on Windows hardware.
+
+## Capstone 3: microphone capture (alpha.16)
+LiteSR now enumerates Windows microphone input devices and provides a Scan button. Choose a microphone to add a separate FFmpeg DirectShow audio input, encoded as 128-kbps AAC for MP4 recording and RTMP streaming. This replaces the previous silent-only streaming path when a microphone is selected; streams without a microphone still carry silent AAC for compatibility. Microphone selection is saved, not a recording of microphone data. Some DirectShow names differ from legacy Windows waveIn names and may need a different selection method; if recording stops immediately, inspect ffmpeg.log. No system/game audio capture or audio level meter yet. Test actual capture on Windows before relying on it.
