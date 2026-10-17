@@ -28,7 +28,12 @@ static HANDLE stdinPipe{};
 static HANDLE logHandle{};
 static std::wstring logPath;
 static bool updateExitRequested=false;
-static const wchar_t* buildVersion=L"0.2.0-alpha.13";
+static bool captureStreaming=false,previewEnabled=true;
+static ULONGLONG captureStarted=0;
+static HWND previewButton{}, sessionInfo{};
+static std::wstring selectedCaptureLabel;
+static int selectedCaptureMode=0;
+static const wchar_t* buildVersion=L"0.2.0-alpha.14";
 static std::wstring get(HWND h){int n=GetWindowTextLengthW(h);std::wstring s(n+1,L'\0');GetWindowTextW(h,s.data(),n+1);s.resize(n);return s;}
 static HWND add(const wchar_t* cls,const wchar_t* text,DWORD style,int x,int y,int w,int h,int id=0){
  if(wcscmp(cls,L"STATIC")==0)style|=SS_OWNERDRAW;
@@ -64,6 +69,8 @@ static void save(){
  put(L"bitrate",get(bitrate));put(L"encoder",std::to_wstring(selection(encoder)));
  put(L"theme",darkMode?L"dark":L"light");
  put(L"sourceMode",std::to_wstring(selection(sourceMode)));
+ put(L"sourceName",selectedCaptureLabel);
+ put(L"preview",previewEnabled?L"1":L"0");
  put(L"audio",std::to_wstring(selection(audio)));put(L"channel",std::to_wstring(selection(updates)));
  // Stream keys are deliberately never written to disk.
 }
@@ -100,10 +107,15 @@ static void refresh(){
   CloseHandle(process.hThread);CloseHandle(process.hProcess);process={};
   if(stdinPipe){CloseHandle(stdinPipe);stdinPipe=nullptr;}
   if(logHandle){CloseHandle(logHandle);logHandle=nullptr;}
+  captureStarted=0;
   setStatus(exitCode==0?L"Stopped normally.":L"FFmpeg stopped with an error. Check encoder or stream settings.");
  }
  if(updateExitRequested&&!process.hProcess){save();DestroyWindow(root);return;}
  bool busy=process.hProcess!=nullptr;
+ if(busy&&captureStarted){ULONGLONG sec=(GetTickCount64()-captureStarted)/1000;
+  std::wstring info=std::wstring(captureStreaming?L"LIVE  |  ":L"RECORDING  |  ")+std::to_wstring(sec/3600)+L"h "+std::to_wstring((sec/60)%60)+L"m "+std::to_wstring(sec%60)+L"s  |  F10 to stop";
+  if(sessionInfo)SetWindowTextW(sessionInfo,info.c_str());
+ }else if(sessionInfo)SetWindowTextW(sessionInfo,L"IDLE  |  F9 start  /  F10 stop");
  EnableWindow(startButton,!busy);EnableWindow(stopButton,busy);
 }
 static void stop(){
@@ -131,11 +143,14 @@ static BOOL CALLBACK findWindow(HWND win,LPARAM){
  captures.push_back({name,rect,win,false});return TRUE;
 }
 static void listCapture(){
+ std::wstring prev=selectedCaptureLabel;
+ if(sourceChoice){int i=selection(sourceChoice);if(i>=0&&i<(int)captures.size())prev=captures[(size_t)i].label;}
  captures.clear();SendMessageW(sourceChoice,CB_RESETCONTENT,0,0);
  if(selection(sourceMode)==0)EnumDisplayMonitors(nullptr,nullptr,findDisplay,0);
  else EnumWindows(findWindow,0);
  for(const auto& c:captures)SendMessageW(sourceChoice,CB_ADDSTRING,0,(LPARAM)c.label.c_str());
- if(!captures.empty())select(sourceChoice,0);
+ int chosen=0;for(int i=0;i<(int)captures.size();++i)if(captures[(size_t)i].label==prev){chosen=i;break;}
+ if(!captures.empty()){select(sourceChoice,chosen);selectedCaptureLabel=captures[(size_t)chosen].label;}
 }
 static void serviceChanged(){
  int n=selection(service);
@@ -165,6 +180,7 @@ static void start(){
  }else{
   dest=get(fileName);
   if(dest.empty()){MessageBoxW(root,L"Enter a recording filename.",L"LiteSR",MB_ICONWARNING);return;}
+  if(GetFileAttributesW(dest.c_str())!=INVALID_FILE_ATTRIBUTES){MessageBoxW(root,L"Recording already exists. Choose another filename so it is not overwritten.",L"LiteSR",MB_ICONWARNING);return;}
  }
  if(dest.find(L'"')!=std::wstring::npos||dest.find(L'\n')!=std::wstring::npos){
   MessageBoxW(root,L"Invalid quotes or newline in destination.",L"LiteSR",MB_ICONWARNING);return;
@@ -192,7 +208,7 @@ static void start(){
  args.insert(args.end(),{L"-b:v",std::to_wstring(rate)+L"k",L"-maxrate",std::to_wstring(rate)+L"k",
   L"-bufsize",std::to_wstring(rate*2)+L"k",L"-g",std::to_wstring(fr*2)});
  if(isStreaming)args.insert(args.end(),{L"-c:a",L"aac",L"-b:a",L"128k",L"-ar",L"44100",L"-shortest",L"-f",L"flv",dest});
- else args.insert(args.end(),{L"-y",L"-movflags",L"+faststart",dest});
+ else args.insert(args.end(),{L"-n",L"-movflags",L"+faststart",dest});
  std::wstring cmd;
  for(const auto& a:args){if(!cmd.empty())cmd+=L" ";cmd+=quote(a);}
  SECURITY_ATTRIBUTES sa={sizeof(sa),nullptr,TRUE};HANDLE read{},write{};
@@ -208,7 +224,7 @@ static void start(){
  BOOL ok=CreateProcessW(ff.c_str(),buffer.data(),nullptr,nullptr,TRUE,CREATE_NO_WINDOW,nullptr,nullptr,&si,&process);
  CloseHandle(read);
  if(!ok){CloseHandle(write);if(logHandle){CloseHandle(logHandle);logHandle=nullptr;}process={};setStatus(L"Failed launching FFmpeg.");return;}
- stdinPipe=write;save();setStatus(isStreaming?L"Stream launched. Confirm live signal on platform.":L"Recording started.");refresh();
+ stdinPipe=write;captureStarted=GetTickCount64();captureStreaming=isStreaming;save();setStatus(isStreaming?L"Stream launched. Confirm live signal on platform.":L"Recording started.");refresh();
 }
 static void checkUpdates(bool manual){
  std::wstring script=directory()+L"updater\\update.ps1";
@@ -230,7 +246,8 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   darkMode=(load(L"theme",L"dark")!=L"light");applyTheme();
   add(L"STATIC",L"LiteSR  /  STUDIO",0,22,12,480,32);
   add(L"STATIC",L"RECORD  /  STREAM  /  CREATE",0,530,18,500,25);
-  add(L"STATIC",L"PREVIEW  -  selected capture source",0,27,58,820,28);
+  add(L"STATIC",L"PREVIEW  -  selected capture source",0,27,58,560,28);
+  previewButton=add(L"BUTTON",L"Preview: ON",BS_PUSHBUTTON,730,58,170,29,7);
   add(L"STATIC",L"OUTPUT SETTINGS",0,928,60,300,28);
   add(L"STATIC",L"Output",0,929,101,85,24);
   mode=combo(1022,97,206,{L"Record MP4",L"Live stream"});
@@ -267,7 +284,8 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   add(L"BUTTON",L"Check updates",BS_PUSHBUTTON,1071,737,153,32,3);
   add(L"BUTTON",L"View FFmpeg log",BS_PUSHBUTTON,906,779,152,32,5);
   themeButton=add(L"BUTTON",L"",BS_OWNERDRAW|WS_TABSTOP,1070,779,154,32,6);
-  state=add(L"STATIC",L"Ready  |  FFmpeg included",0,27,828,1180,36);
+  state=add(L"STATIC",L"Ready  |  FFmpeg included",0,27,826,780,36);
+  sessionInfo=add(L"STATIC",L"IDLE  |  F9 start / F10 stop",0,820,826,420,34);
   applyTheme();
   select(mode,loadIndex(L"mode",0,2));select(service,loadIndex(L"service",0,3));
   serviceChanged();
@@ -276,14 +294,18 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   select(resolution,loadIndex(L"resolution",1,3));select(fps,loadIndex(L"fps",0,2));
   SetWindowTextW(bitrate,load(L"bitrate",L"3000").c_str());
   select(encoder,loadIndex(L"encoder",0,2));select(updates,loadIndex(L"channel",1,2));
-  select(sourceMode,loadIndex(L"sourceMode",0,2));listCapture();SetTimer(h,1,500,nullptr);SetTimer(h,2,3500,nullptr);refresh();return 0;
+  selectedCaptureLabel=load(L"sourceName",L"");previewEnabled=load(L"preview",L"1")!=L"0";
+  SetWindowTextW(previewButton,previewEnabled?L"Preview: ON":L"Preview: OFF");
+  select(sourceMode,loadIndex(L"sourceMode",0,2));listCapture();
+  RegisterHotKey(h,91,MOD_NOREPEAT,VK_F9);RegisterHotKey(h,92,MOD_NOREPEAT,VK_F10);
+  SetTimer(h,1,500,nullptr);SetTimer(h,2,3500,nullptr);refresh();return 0;
  }
  case WM_PAINT:{
   PAINTSTRUCT ps{};HDC dc=BeginPaint(h,&ps);
   HBRUSH bg=CreateSolidBrush(darkMode?RGB(9,13,22):RGB(218,229,244));
   FillRect(dc,&previewArea,bg);DeleteObject(bg);
   int selectedIndex=sourceChoice?selection(sourceChoice):-1;
-  if(selectedIndex>=0&&selectedIndex<(int)captures.size()){
+  if(previewEnabled&&selectedIndex>=0&&selectedIndex<(int)captures.size()){
    const Capture& c=captures[(size_t)selectedIndex];
    RECT r=c.bounds;int sw=r.right-r.left,sh=r.bottom-r.top;
    if(sw>0&&sh>0){
@@ -298,7 +320,7 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
    }
   }else{
    SetBkMode(dc,TRANSPARENT);SetTextColor(dc,darkMode?RGB(152,168,196):RGB(67,86,115));
-   DrawTextW(dc,L"Select a source below to preview your capture.",-1,&previewArea,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+   DrawTextW(dc,previewEnabled?L"Select a source below to preview your capture.":L"Preview paused - capture is still available.",-1,&previewArea,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
   }
   EndPaint(h,&ps);return 0;
  }
@@ -359,12 +381,16 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   if(m==WM_CTLCOLOREDIT||m==WM_CTLCOLORLISTBOX){SetBkColor(dc,fieldColor);return (LRESULT)fieldBrush;}
   return (LRESULT)darkBrush;
  }
+ case WM_HOTKEY:
+  if(w==91&&!process.hProcess)start();
+  if(w==92&&process.hProcess)stop();return 0;
  case WM_COMMAND:
   if(LOWORD(w)==1)start();
   if(LOWORD(w)==2)stop();
   if(LOWORD(w)==3)checkUpdates(true);
   if(LOWORD(w)==4||((HWND)l==sourceMode&&HIWORD(w)==CBN_SELCHANGE))listCapture();
-  if((HWND)l==sourceChoice&&HIWORD(w)==CBN_SELCHANGE)InvalidateRect(root,&previewArea,FALSE);
+  if((HWND)l==sourceChoice&&HIWORD(w)==CBN_SELCHANGE){int i=selection(sourceChoice);if(i>=0&&i<(int)captures.size())selectedCaptureLabel=captures[(size_t)i].label;save();InvalidateRect(root,&previewArea,FALSE);}
+  if(LOWORD(w)==7){previewEnabled=!previewEnabled;SetWindowTextW(previewButton,previewEnabled?L"Preview: ON":L"Preview: OFF");save();InvalidateRect(h,&previewArea,FALSE);}
   if(LOWORD(w)==6){darkMode=!darkMode;applyTheme();save();}
   if(LOWORD(w)==5){std::wstring p=logPath.empty()?cfg().substr(0,cfg().find_last_of(L"\\/")+1)+L"ffmpeg.log":logPath;ShellExecuteW(h,L"open",p.c_str(),nullptr,nullptr,SW_SHOWNORMAL);}
   if((HWND)l==service&&HIWORD(w)==CBN_SELCHANGE)serviceChanged();
@@ -378,12 +404,12 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
    }
   }
   if(w==2){KillTimer(h,2);checkUpdates(false);}else refresh();
-  if(w==1)InvalidateRect(h,&previewArea,FALSE);
+  if(w==1&&previewEnabled)InvalidateRect(h,&previewArea,FALSE);
   return 0;
  case WM_CLOSE:
   if(process.hProcess){stop();MessageBoxW(h,L"Stop and finalize recording before closing.",L"LiteSR",MB_OK);return 0;}
   save();DestroyWindow(h);return 0;
- case WM_DESTROY:if(darkBrush){DeleteObject(darkBrush);darkBrush=nullptr;}if(fieldBrush){DeleteObject(fieldBrush);fieldBrush=nullptr;}if(uiFont){DeleteObject(uiFont);uiFont=nullptr;}PostQuitMessage(0);return 0;
+ case WM_DESTROY:UnregisterHotKey(h,91);UnregisterHotKey(h,92);if(darkBrush){DeleteObject(darkBrush);darkBrush=nullptr;}if(fieldBrush){DeleteObject(fieldBrush);fieldBrush=nullptr;}if(uiFont){DeleteObject(uiFont);uiFont=nullptr;}PostQuitMessage(0);return 0;
  }
  return DefWindowProcW(h,m,w,l);
 }
@@ -391,7 +417,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,LPWSTR,int show){
  WNDCLASSW wc{};wc.hInstance=instance;wc.lpfnWndProc=wnd;wc.lpszClassName=L"LiteSRMain";
  wc.hbrBackground=(HBRUSH)(COLOR_WINDOW+1);wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);
  RegisterClassW(&wc);
- HWND h=CreateWindowExW(0,L"LiteSRMain",L"LiteSR v0.2.0-alpha.13",WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX,
+ HWND h=CreateWindowExW(0,L"LiteSRMain",L"LiteSR v0.2.0-alpha.14",WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX,
  CW_USEDEFAULT,CW_USEDEFAULT,1260,925,nullptr,nullptr,instance,nullptr);
  ShowWindow(h,show);MSG msg;
  while(GetMessageW(&msg,nullptr,0,0)>0){TranslateMessage(&msg);DispatchMessageW(&msg);}
