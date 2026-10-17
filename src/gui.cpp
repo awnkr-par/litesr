@@ -27,6 +27,10 @@ static HWND fullscreenButton{};
 struct UiPosition{HWND h;RECT bounds;};
 static std::vector<UiPosition> uiPositions;
 static bool layoutReady=false;
+static HWND settingsWindow{},settingsServer{},settingsResolution{},settingsFps{},settingsBitrate{},settingsEncoder{},settingsBackend{},settingsContrast{},settingsLargeText{},settingsReducedPreview{};
+static bool highContrast=false,largeText=false,reducedPreview=false;
+static HFONT largeFont{};
+static void showSettings();
 static HFONT uiFont{};
 static COLORREF accent=RGB(85,135,250);
 static void applyTheme();
@@ -56,7 +60,7 @@ static ULONGLONG captureStarted=0;
 static HWND previewButton{}, sessionInfo{};
 static std::wstring selectedCaptureLabel;
 static int selectedCaptureMode=0;
-static const wchar_t* buildVersion=L"0.2.0-alpha.19";
+static const wchar_t* buildVersion=L"0.2.0-alpha.20";
 static void layoutWorkspace(){
  if(!root||!layoutReady)return;
  RECT client{};GetClientRect(root,&client);
@@ -135,6 +139,7 @@ static void save(){
  put(L"bitrate",get(bitrate));put(L"encoder",std::to_wstring(selection(encoder)));
  put(L"theme",darkMode?L"dark":L"light");
  put(L"backend",std::to_wstring(selection(captureBackend)));
+ put(L"highContrast",highContrast?L"1":L"0");put(L"largeText",largeText?L"1":L"0");put(L"reducedPreview",reducedPreview?L"1":L"0");
  put(L"sourceMode",std::to_wstring(selection(sourceMode)));
  put(L"sourceName",selectedCaptureLabel);
  put(L"preview",previewEnabled?L"1":L"0");
@@ -150,10 +155,10 @@ static int loadIndex(const wchar_t* name,int fallback,int maximum){
  catch(...){return fallback;}
 }
 static void applyTheme(){
- canvas=darkMode?RGB(17,22,34):RGB(244,247,253);
+ canvas=highContrast?(darkMode?RGB(0,0,0):RGB(255,255,255)):(darkMode?RGB(17,22,34):RGB(244,247,253));
  panelColor=darkMode?RGB(24,33,51):RGB(229,237,250);
  fieldColor=darkMode?RGB(30,38,54):RGB(255,255,255);
- ink=darkMode?RGB(230,235,246):RGB(31,45,73);
+ ink=highContrast?(darkMode?RGB(255,255,255):RGB(0,0,0)):(darkMode?RGB(230,235,246):RGB(31,45,73));
  if(darkBrush)DeleteObject(darkBrush);
  if(fieldBrush)DeleteObject(fieldBrush);
  darkBrush=CreateSolidBrush(canvas);fieldBrush=CreateSolidBrush(fieldColor);
@@ -163,6 +168,7 @@ static void applyTheme(){
    wchar_t cls[32]{};GetClassNameW(h,cls,32);
    if(wcscmp(cls,L"BUTTON")==0||wcscmp(cls,L"COMBOBOX")==0||wcscmp(cls,L"EDIT")==0)
     SetWindowTheme(h,mode?L"DarkMode_Explorer":L"Explorer",nullptr);
+   SendMessageW(h,WM_SETFONT,(WPARAM)(largeText&&largeFont?largeFont:uiFont),TRUE);
    InvalidateRect(h,nullptr,TRUE);return TRUE;
   },(LPARAM)(darkMode?1:0));
   InvalidateRect(root,nullptr,TRUE);
@@ -401,19 +407,89 @@ static void checkUpdates(bool manual){
   CloseHandle(pi.hThread);CloseHandle(pi.hProcess);
  }
 }
+static HWND settingsAdd(const wchar_t* cls,const wchar_t* value,DWORD style,int x,int y,int w,int h,int id=0){
+ HWND v=CreateWindowExW(0,cls,value,WS_CHILD|WS_VISIBLE|style,x,y,w,h,settingsWindow,(HMENU)(INT_PTR)id,GetModuleHandleW(nullptr),nullptr);
+ SendMessageW(v,WM_SETFONT,(WPARAM)(largeText&&largeFont?largeFont:uiFont),TRUE);
+ return v;
+}
+static HWND settingsCombo(int x,int y,int w,const std::vector<const wchar_t*>& options,int index){
+ HWND c=settingsAdd(L"COMBOBOX",L"",CBS_DROPDOWNLIST|WS_TABSTOP,x,y,w,240);
+ for(auto t:options)SendMessageW(c,CB_ADDSTRING,0,(LPARAM)t);
+ select(c,index);return c;
+}
+static void saveSettingsFromWindow(){
+ SetWindowTextW(server,get(settingsServer).c_str());
+ select(resolution,selection(settingsResolution));
+ select(fps,selection(settingsFps));
+ SetWindowTextW(bitrate,get(settingsBitrate).c_str());
+ select(encoder,selection(settingsEncoder));
+ select(captureBackend,selection(settingsBackend));
+ highContrast=SendMessageW(settingsContrast,BM_GETCHECK,0,0)==BST_CHECKED;
+ largeText=SendMessageW(settingsLargeText,BM_GETCHECK,0,0)==BST_CHECKED;
+ reducedPreview=SendMessageW(settingsReducedPreview,BM_GETCHECK,0,0)==BST_CHECKED;
+ save();applyTheme();
+ if(root)SetTimer(root,1,reducedPreview?2500:1000,nullptr);
+}
+static LRESULT CALLBACK settingsProc(HWND h,UINT m,WPARAM w,LPARAM l){
+ switch(m){
+ case WM_CREATE:{
+  settingsWindow=h;
+  settingsAdd(L"STATIC",L"STREAMING",0,22,18,430,25);
+  settingsAdd(L"STATIC",L"Server URL",0,22,53,145,25);
+  settingsServer=settingsAdd(L"EDIT",get(server).c_str(),WS_BORDER|ES_AUTOHSCROLL,173,48,315,30);
+  settingsAdd(L"STATIC",L"VIDEO",0,22,98,430,25);
+  settingsAdd(L"STATIC",L"Resolution",0,22,137,145,25);
+  settingsResolution=settingsCombo(173,133,315,{L"480p 854x480",L"720p 1280x720",L"1080p 1920x1080"},selection(resolution));
+  settingsAdd(L"STATIC",L"Frame rate",0,22,179,145,25);
+  settingsFps=settingsCombo(173,175,315,{L"30 FPS",L"60 FPS"},selection(fps));
+  settingsAdd(L"STATIC",L"Bitrate (Kbps)",0,22,220,145,25);
+  settingsBitrate=settingsAdd(L"EDIT",get(bitrate).c_str(),WS_BORDER|ES_NUMBER,173,215,315,30);
+  settingsAdd(L"STATIC",L"Encoder",0,22,260,145,25);
+  settingsEncoder=settingsCombo(173,256,315,{L"Intel Quick Sync",L"CPU x264"},selection(encoder));
+  settingsAdd(L"STATIC",L"Capture engine",0,22,301,145,25);
+  settingsBackend=settingsCombo(173,297,315,{L"GDI compatible",L"Desktop Duplication (experimental)"},selection(captureBackend));
+  settingsAdd(L"STATIC",L"ACCESSIBILITY",0,22,349,430,25);
+  settingsContrast=settingsAdd(L"BUTTON",L"High-contrast colors",BS_AUTOCHECKBOX,22,383,450,30);
+  settingsLargeText=settingsAdd(L"BUTTON",L"Larger text",BS_AUTOCHECKBOX,22,421,450,30);
+  settingsReducedPreview=settingsAdd(L"BUTTON",L"Reduced preview updates (less motion / CPU)",BS_AUTOCHECKBOX,22,459,480,30);
+  SendMessageW(settingsContrast,BM_SETCHECK,highContrast?BST_CHECKED:BST_UNCHECKED,0);
+  SendMessageW(settingsLargeText,BM_SETCHECK,largeText?BST_CHECKED:BST_UNCHECKED,0);
+  SendMessageW(settingsReducedPreview,BM_SETCHECK,reducedPreview?BST_CHECKED:BST_UNCHECKED,0);
+  settingsAdd(L"BUTTON",L"Save settings",BS_PUSHBUTTON,22,513,225,38,101);
+  settingsAdd(L"BUTTON",L"Cancel",BS_PUSHBUTTON,263,513,225,38,102);
+  return 0;
+ }
+ case WM_COMMAND:
+  if(LOWORD(w)==101){saveSettingsFromWindow();DestroyWindow(h);return 0;}
+  if(LOWORD(w)==102){DestroyWindow(h);return 0;}
+  break;
+ case WM_CLOSE:DestroyWindow(h);return 0;
+ case WM_DESTROY:settingsWindow=nullptr;return 0;
+ }
+ return DefWindowProcW(h,m,w,l);
+}
+static void showSettings(){
+ if(settingsWindow){SetForegroundWindow(settingsWindow);return;}
+ WNDCLASSW wc{};wc.hInstance=GetModuleHandleW(nullptr);wc.lpfnWndProc=settingsProc;wc.lpszClassName=L"LiteSRSettings";
+ wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);wc.hbrBackground=(HBRUSH)(COLOR_WINDOW+1);RegisterClassW(&wc);
+ HWND v=CreateWindowExW(WS_EX_DLGMODALFRAME,L"LiteSRSettings",L"LiteSR Settings",WS_CAPTION|WS_SYSMENU|WS_POPUP,
+ CW_USEDEFAULT,CW_USEDEFAULT,535,610,root,nullptr,GetModuleHandleW(nullptr),nullptr);
+ ShowWindow(v,SW_SHOW);SetForegroundWindow(v);
+}
 static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
  switch(m){
  case WM_CREATE:{
   root=h;
+  largeFont=CreateFontW(-21,0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Segoe UI");
   uiFont=CreateFontW(-17,0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Segoe UI");
   darkMode=(load(L"theme",L"dark")!=L"light");applyTheme();
   add(L"STATIC",L"LiteSR  /  STUDIO",0,22,12,480,32);
   add(L"STATIC",L"RECORD  /  STREAM  /  CREATE",0,530,18,300,25);
-  fullscreenButton=add(L"BUTTON",L"Fullscreen [F11]",BS_PUSHBUTTON,1034,14,193,32,11);
+  add(L"BUTTON",L"Settings",BS_PUSHBUTTON,1034,14,193,32,12);
   add(L"STATIC",L"PREVIEW  -  selected capture source",0,27,58,560,28);
   previewButton=add(L"BUTTON",L"Preview: ON",BS_PUSHBUTTON,730,58,170,29,7);
   captureBackend=combo(530,58,190,{L"GDI (compatible)",L"Desktop Duplication"});
-  add(L"STATIC",L"OUTPUT SETTINGS",0,928,60,300,28);
+  add(L"STATIC",L"OUTPUT",0,928,60,300,28);
   add(L"STATIC",L"Output",0,929,101,85,24);
   mode=combo(1022,97,206,{L"Record MP4",L"Live stream"});
   add(L"STATIC",L"Platform",0,929,144,85,24);
@@ -449,7 +525,8 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   add(L"STATIC",L"CONTROLS",0,901,585,324,28);
   startButton=add(L"BUTTON",L"Start recording / streaming",BS_PUSHBUTTON|WS_TABSTOP,906,621,318,46,1);
   stopButton=add(L"BUTTON",L"Stop and finalize",BS_PUSHBUTTON|WS_TABSTOP,906,677,318,43,2);
-  updates=combo(906,737,155,{L"Stable",L"Beta / Alpha"},1);
+  updates=combo(906,737,155,{L"Beta / Alpha"},0);
+  ShowWindow(updates,SW_HIDE);
   add(L"BUTTON",L"Check updates",BS_PUSHBUTTON,1071,737,153,32,3);
   add(L"BUTTON",L"View FFmpeg log",BS_PUSHBUTTON,906,779,152,32,5);
   openFolderButton=add(L"BUTTON",L"Open recordings",BS_PUSHBUTTON,1070,779,152,32,9);
@@ -466,7 +543,8 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   SetWindowTextW(fileName,load(L"output",defaultOutput.c_str()).c_str());
   select(resolution,loadIndex(L"resolution",1,3));select(fps,loadIndex(L"fps",0,2));
   SetWindowTextW(bitrate,load(L"bitrate",L"3000").c_str());
-  select(encoder,loadIndex(L"encoder",0,2));select(updates,loadIndex(L"channel",1,2));
+  select(encoder,loadIndex(L"encoder",0,2));select(updates,0);
+  highContrast=load(L"highContrast",L"0")==L"1";largeText=load(L"largeText",L"0")==L"1";reducedPreview=load(L"reducedPreview",L"0")==L"1";applyTheme();
   selectedCaptureLabel=load(L"sourceName",L"");previewEnabled=load(L"preview",L"1")!=L"0";
   SetWindowTextW(previewButton,previewEnabled?L"Preview: ON":L"Preview: OFF");
   select(captureBackend,loadIndex(L"backend",0,2));
@@ -474,7 +552,7 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   auto micSaved=load(L"microphone",L"");for(size_t i=0;i<microphoneDevices.size();++i)if(microphoneDevices[i]==micSaved){select(audio,(int)i+1);break;}
   RegisterHotKey(h,91,MOD_NOREPEAT,VK_F9);RegisterHotKey(h,92,MOD_NOREPEAT,VK_F10);
   layoutReady=true;layoutWorkspace();
-  SetTimer(h,1,1000,nullptr);SetTimer(h,2,3500,nullptr);refresh();return 0;
+  SetTimer(h,1,reducedPreview?2500:1000,nullptr);SetTimer(h,2,3500,nullptr);refresh();return 0;
  }
  case WM_SIZE:if(layoutReady&&w!=SIZE_MINIMIZED)layoutWorkspace();return 0;
  case WM_KEYDOWN:if(w==VK_F11){toggleFullscreen();return 0;}if(w==VK_ESCAPE&&fullscreen){toggleFullscreen();return 0;}break;
@@ -568,7 +646,7 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   if(LOWORD(w)==3)checkUpdates(true);
   if(LOWORD(w)==4||((HWND)l==sourceMode&&HIWORD(w)==CBN_SELCHANGE))listCapture();
   if((HWND)l==sourceChoice&&HIWORD(w)==CBN_SELCHANGE){int i=selection(sourceChoice);if(i>=0&&i<(int)captures.size())selectedCaptureLabel=captures[(size_t)i].label;save();InvalidateRect(root,&previewArea,FALSE);}
-  if(LOWORD(w)==11)toggleFullscreen();
+  if(LOWORD(w)==12)showSettings();
   if(LOWORD(w)==10){listMicrophones();save();}
   if((HWND)l==audio&&HIWORD(w)==CBN_SELCHANGE)save();
   if((HWND)l==captureBackend&&HIWORD(w)==CBN_SELCHANGE)save();
@@ -594,7 +672,7 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
  case WM_CLOSE:
   if(process.hProcess){stop();MessageBoxW(h,L"Stop and finalize recording before closing.",L"LiteSR",MB_OK);return 0;}
   save();DestroyWindow(h);return 0;
- case WM_DESTROY:UnregisterHotKey(h,91);UnregisterHotKey(h,92);if(darkBrush){DeleteObject(darkBrush);darkBrush=nullptr;}if(fieldBrush){DeleteObject(fieldBrush);fieldBrush=nullptr;}if(uiFont){DeleteObject(uiFont);uiFont=nullptr;}PostQuitMessage(0);return 0;
+ case WM_DESTROY:if(settingsWindow)DestroyWindow(settingsWindow);if(largeFont)DeleteObject(largeFont);UnregisterHotKey(h,91);UnregisterHotKey(h,92);if(darkBrush){DeleteObject(darkBrush);darkBrush=nullptr;}if(fieldBrush){DeleteObject(fieldBrush);fieldBrush=nullptr;}if(uiFont){DeleteObject(uiFont);uiFont=nullptr;}PostQuitMessage(0);return 0;
  }
  return DefWindowProcW(h,m,w,l);
 }
@@ -602,7 +680,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,LPWSTR,int show){
  WNDCLASSW wc{};wc.hInstance=instance;wc.lpfnWndProc=wnd;wc.lpszClassName=L"LiteSRMain";
  wc.hbrBackground=(HBRUSH)(COLOR_WINDOW+1);wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);
  RegisterClassW(&wc);
- HWND h=CreateWindowExW(0,L"LiteSRMain",L"LiteSR v0.2.0-alpha.19",WS_OVERLAPPEDWINDOW,
+ HWND h=CreateWindowExW(0,L"LiteSRMain",L"LiteSR v0.2.0-alpha.20",WS_OVERLAPPEDWINDOW,
  CW_USEDEFAULT,CW_USEDEFAULT,1260,925,nullptr,nullptr,instance,nullptr);
  ShowWindow(h,show);MSG msg;
  while(GetMessageW(&msg,nullptr,0,0)>0){TranslateMessage(&msg);DispatchMessageW(&msg);}
