@@ -67,7 +67,7 @@ static ULONGLONG captureStarted=0;
 static HWND previewButton{}, sessionInfo{};
 static std::wstring selectedCaptureLabel;
 static int selectedCaptureMode=0;
-static const wchar_t* buildVersion=L"0.2.0-alpha.22";
+static const wchar_t* buildVersion=L"0.2.0-alpha.23";
 static void layoutWorkspace(){
  if(!root||!layoutReady)return;
  RECT client{};GetClientRect(root,&client);
@@ -406,17 +406,20 @@ static void start(){
  if(!ok){CloseHandle(write);if(logHandle){CloseHandle(logHandle);logHandle=nullptr;}process={};setStatus(L"Failed launching FFmpeg.");return;}
  stdinPipe=write;activeOutput=isStreaming?L"":dest;captureStarted=GetTickCount64();captureStreaming=isStreaming;save();setStatus(isStreaming?L"Stream launched. Confirm live signal on platform.":L"Recording started.");refresh();
 }
+static ULONGLONG lastUpdateCheck=0;
 static void checkUpdates(bool manual){
+ if(!manual&&GetTickCount64()-lastUpdateCheck<3600000)return;
+ lastUpdateCheck=GetTickCount64();
  std::wstring script=directory()+L"updater\\update.ps1";
- if(GetFileAttributesW(script.c_str())==INVALID_FILE_ATTRIBUTES)return;
+ if(GetFileAttributesW(script.c_str())==INVALID_FILE_ATTRIBUTES){if(manual)MessageBoxW(root,L"Updater script is missing. Reinstall LiteSR.",L"Updates",MB_ICONWARNING);return;}
  std::wstring command=L"powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "+
- quote(script)+L" -Channel "+L"beta"+L" -ParentPid "+std::to_wstring(GetCurrentProcessId());
+ quote(script)+L" -Channel beta -ParentPid "+std::to_wstring(GetCurrentProcessId())+L" -CurrentVersion "+buildVersion;
  if(manual)command+=L" -Manual";
  STARTUPINFOW si{};si.cb=sizeof(si);PROCESS_INFORMATION pi{};
  std::vector<wchar_t> buffer(command.begin(),command.end());buffer.push_back(0);
  if(CreateProcessW(nullptr,buffer.data(),nullptr,nullptr,FALSE,CREATE_NO_WINDOW,nullptr,nullptr,&si,&pi)){
   CloseHandle(pi.hThread);CloseHandle(pi.hProcess);
- }
+ }else if(manual)MessageBoxW(root,L"Could not start the updater. Check that PowerShell is available.",L"LiteSR Updates",MB_ICONWARNING);
 }
 static HWND settingsAdd(const wchar_t* cls,const wchar_t* value,DWORD style,int x,int y,int w,int h,int id=0){
  HWND result=add(cls,value,style,x,y,w,h,id);
@@ -694,11 +697,16 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   if(w==1){
    auto marker=cfg();marker=marker.substr(0,marker.find_last_of(L"\\/")+1)+L"update-ready.flag";
    if(GetFileAttributesW(marker.c_str())!=INVALID_FILE_ATTRIBUTES){
-    DeleteFileW(marker.c_str());updateExitRequested=true;
-    if(process.hProcess){stop();setStatus(L"Update approved - finalizing capture before installing...");}
+    wchar_t content[64]{};HANDLE fh=CreateFileW(marker.c_str(),GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_WRITE,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);
+    DWORD used=0;if(fh!=INVALID_HANDLE_VALUE){ReadFile(fh,content,sizeof(content)-sizeof(wchar_t),&used,nullptr);CloseHandle(fh);}
+    DeleteFileW(marker.c_str());
+    if(std::wstring(content,content+used/sizeof(wchar_t))==std::to_wstring(GetCurrentProcessId())||used==0){updateExitRequested=true;
+      if(process.hProcess){stop();setStatus(L"Update approved - finalizing capture before installing...");}}
+
    }
   }
   if(w==2){KillTimer(h,2);checkUpdates(false);}else refresh();
+  if(w==1&&!updateExitRequested)checkUpdates(false);
   if(w==1&&previewEnabled&&!settingsVisible)InvalidateRect(h,&previewArea,FALSE);
   return 0;
  case WM_CLOSE:
@@ -712,7 +720,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,LPWSTR,int show){
  WNDCLASSW wc{};wc.hInstance=instance;wc.lpfnWndProc=wnd;wc.lpszClassName=L"LiteSRMain";
  wc.hbrBackground=(HBRUSH)(COLOR_WINDOW+1);wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);
  RegisterClassW(&wc);
- HWND h=CreateWindowExW(0,L"LiteSRMain",L"LiteSR v0.2.0-alpha.22",WS_OVERLAPPEDWINDOW,
+ HWND h=CreateWindowExW(0,L"LiteSRMain",L"LiteSR v0.2.0-alpha.23",WS_OVERLAPPEDWINDOW,
  CW_USEDEFAULT,CW_USEDEFAULT,1260,925,nullptr,nullptr,instance,nullptr);
  ShowWindow(h,show);MSG msg;
  while(GetMessageW(&msg,nullptr,0,0)>0){TranslateMessage(&msg);DispatchMessageW(&msg);}
