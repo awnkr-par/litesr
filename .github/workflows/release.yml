@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Version tag (example v0.2.0-alpha.22)
+        description: Version tag (example v0.2.0-alpha.23)
         required: true
-        default: v0.2.0-alpha.22
+        default: v0.2.0-alpha.23
 permissions:
   contents: write
 jobs:
@@ -16,11 +16,16 @@ jobs:
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
+      - name: Test updater version logic
+        shell: pwsh
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File updater/update.ps1 -SelfTest
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Choose version
         id: version
         shell: pwsh
         run: |
-          if ($env:GITHUB_REF_TYPE -eq 'tag') { $tag = $env:GITHUB_REF_NAME } elseif ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') { $tag = '${{ inputs.version }}' } else { $tag = 'v0.2.0-alpha.22' }
+          if ($env:GITHUB_REF_TYPE -eq 'tag') { $tag = $env:GITHUB_REF_NAME } elseif ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') { $tag = '${{ inputs.version }}' } else { $tag = 'v0.2.0-alpha.23' }
           if ($tag -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$') { throw "Invalid version" }
           "tag=$tag" >> $env:GITHUB_OUTPUT
           "number=$($tag.Substring(1))" >> $env:GITHUB_OUTPUT
