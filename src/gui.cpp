@@ -408,7 +408,7 @@ static void start(){
 }
 static ULONGLONG lastUpdateCheck=0;
 static void checkUpdates(bool manual){
- if(!manual&&GetTickCount64()-lastUpdateCheck<3600000)return;
+ if(!manual&&lastUpdateCheck!=0&&GetTickCount64()-lastUpdateCheck<3600000)return;
  lastUpdateCheck=GetTickCount64();
  std::wstring script=directory()+L"updater\\update.ps1";
  if(GetFileAttributesW(script.c_str())==INVALID_FILE_ATTRIBUTES){if(manual)MessageBoxW(root,L"Updater script is missing. Reinstall LiteSR.",L"Updates",MB_ICONWARNING);return;}
@@ -697,10 +697,10 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   if(w==1){
    auto marker=cfg();marker=marker.substr(0,marker.find_last_of(L"\\/")+1)+L"update-ready.flag";
    if(GetFileAttributesW(marker.c_str())!=INVALID_FILE_ATTRIBUTES){
-    wchar_t content[64]{};HANDLE fh=CreateFileW(marker.c_str(),GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_WRITE,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);
-    DWORD used=0;if(fh!=INVALID_HANDLE_VALUE){ReadFile(fh,content,sizeof(content)-sizeof(wchar_t),&used,nullptr);CloseHandle(fh);}
+    char content[64]{};HANDLE fh=CreateFileW(marker.c_str(),GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_WRITE,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);
+    DWORD used=0;if(fh!=INVALID_HANDLE_VALUE){ReadFile(fh,content,sizeof(content)-1,&used,nullptr);CloseHandle(fh);}
     DeleteFileW(marker.c_str());
-    if(std::wstring(content,content+used/sizeof(wchar_t))==std::to_wstring(GetCurrentProcessId())||used==0){updateExitRequested=true;
+    if(std::string(content,content+used)==std::to_string(GetCurrentProcessId())){updateExitRequested=true;
       if(process.hProcess){stop();setStatus(L"Update approved - finalizing capture before installing...");}}
 
    }
