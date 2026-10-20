@@ -84,3 +84,8 @@ Replaces the separate popup window with a full-width Settings page inside LiteSR
 
 ## Alpha.22 — animated navigation and capture feedback
 Adds smooth slide-in transitions between the in-app Studio and Settings pages, a subtle animated recording/live indicator, and a persisted Reduce motion accessibility setting that disables both. Animations use an independent short UI timer and never alter the FFmpeg capture frame rate. If animations cause display problems, enable Reduce motion in Settings. Animation behavior and accessibility require real-machine visual testing.
+
+## Capstone alpha.23: updater reliability
+Updates now compare prerelease versions numerically (so alpha.23 is correctly newer than alpha.9), check at startup and roughly hourly while LiteSR remains open, use the executing application's version instead of only a stale script constant, and record diagnostics to `%APPDATA%\\LiteSR\\updater.log`. Check Updates opens the same verified-download and user-approved installer flow. The updater sends an application-specific process-ID shutdown request after verifying SHA256, and the app waits for FFmpeg to finalize before exiting. A View updater log control appears in Settings. Windows release CI exercises version ordering before building installers.
+
+**Important migration note:** Existing alpha.22 users may need to install alpha.23 once manually because their older update logic is the component being repaired. Future releases need a real-machine update test to confirm the entire download / shutdown / install loop.
