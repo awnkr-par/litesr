@@ -481,6 +481,7 @@ static void showSettings(){
   settingsReducedPreview=settingsAdd(L"BUTTON",L"Reduce preview refresh rate to save CPU",BS_AUTOCHECKBOX,63,589,900,35);
   settingsReduceMotion=settingsAdd(L"BUTTON",L"Reduce motion (disable page and recording animations)",BS_AUTOCHECKBOX,63,640,980,35);
   settingsAdd(L"STATIC",L"Changes apply to the next recording. Stream keys are not stored.",0,58,708,1000,31);
+  settingsAdd(L"BUTTON",L"View updater log",BS_PUSHBUTTON,58,758,245,48,13);
   settingsAdd(L"BUTTON",L"Save settings",BS_PUSHBUTTON,873,758,250,48,101);
  }
  SetWindowTextW(settingsServer,get(server).c_str());
@@ -672,6 +673,7 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   if(w==91&&!process.hProcess)start();
   if(w==92&&process.hProcess)stop();return 0;
  case WM_COMMAND:
+  if(LOWORD(w)==13){std::wstring p=cfg();p=p.substr(0,p.find_last_of(L"\\/")+1)+L"updater.log";if(GetFileAttributesW(p.c_str())==INVALID_FILE_ATTRIBUTES)MessageBoxW(root,L"No updater log yet. Run Check updates first.",L"LiteSR",MB_OK);else ShellExecuteW(root,L"open",p.c_str(),nullptr,nullptr,SW_SHOWNORMAL);return 0;}
   if(LOWORD(w)==101){saveSettingsFromWindow();return 0;}
   if(LOWORD(w)==102){settingsVisible=false;pageAnimating=!reduceMotion;transitionFrame=0;transitionDirection=-1;if(pageAnimating)SetTimer(root,3,16,nullptr);for(HWND v:settingsPage)ShowWindow(v,SW_HIDE);for(HWND v:studioPage)if(v&&v!=updates)ShowWindow(v,SW_SHOW);for(HWND v:{server,resolution,fps,bitrate,encoder,captureBackend,updates})ShowWindow(v,SW_HIDE);InvalidateRect(root,nullptr,TRUE);return 0;}
   if(LOWORD(w)==1)start();
