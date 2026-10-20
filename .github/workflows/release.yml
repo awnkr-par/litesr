@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Version tag (example v0.2.0-alpha.24)
+        description: Version tag (example v0.2.0-alpha.25)
         required: true
-        default: v0.2.0-alpha.24
+        default: v0.2.0-alpha.25
 permissions:
   contents: write
 jobs:
@@ -28,7 +28,7 @@ jobs:
         id: version
         shell: pwsh
         run: |
-          if ($env:GITHUB_REF_TYPE -eq 'tag') { $tag = $env:GITHUB_REF_NAME } elseif ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') { $tag = '${{ inputs.version }}' } else { $tag = 'v0.2.0-alpha.24' }
+          if ($env:GITHUB_REF_TYPE -eq 'tag') { $tag = $env:GITHUB_REF_NAME } elseif ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') { $tag = '${{ inputs.version }}' } else { $tag = 'v0.2.0-alpha.25' }
           if ($tag -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$') { throw "Invalid version" }
           "tag=$tag" >> $env:GITHUB_OUTPUT
           "number=$($tag.Substring(1))" >> $env:GITHUB_OUTPUT
@@ -63,6 +63,18 @@ jobs:
           & vendor/ffmpeg/bin/ffmpeg.exe -hide_banner -version
           if ($LASTEXITCODE -ne 0) { throw 'Bundled FFmpeg failed validation' }
           Get-FileHash ffmpeg-package.zip -Algorithm SHA256 | Format-List
+      - name: FFmpeg recording smoke test
+        if: steps.existing.outputs.exists == 'false'
+        shell: pwsh
+        run: |
+          $ffmpeg = 'vendor/ffmpeg/bin/ffmpeg.exe'
+          $ffprobe = 'vendor/ffmpeg/bin/ffprobe.exe'
+          & $ffmpeg -hide_banner -loglevel error -f lavfi -i 'testsrc2=size=640x360:rate=30' -f lavfi -i 'sine=frequency=440:sample_rate=44100' -t 2 -map '0:v:0' -map '1:a:0' -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac -y 'smoke-recording.mp4'
+          if ($LASTEXITCODE -ne 0) { throw 'Bundled FFmpeg cannot encode video and audio' }
+          $streams = & $ffprobe -v error -show_entries stream=codec_type -of csv=p=0 'smoke-recording.mp4'
+          if ($LASTEXITCODE -ne 0 -or $streams -notcontains 'video' -or $streams -notcontains 'audio') { throw 'Smoke MP4 missing encoded video or audio' }
+          if ((Get-Item 'smoke-recording.mp4').Length -lt 10000) { throw 'Smoke MP4 unexpectedly small' }
+          Write-Host 'FFmpeg recording smoke test passed'
       - name: Prepare portable ZIP
         if: steps.existing.outputs.exists == 'false'
         shell: pwsh
