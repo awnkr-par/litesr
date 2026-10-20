@@ -92,3 +92,14 @@ Updates now compare prerelease versions numerically (so alpha.23 is correctly ne
 
 ## Alpha.24 — photosensitivity safety fix
 Removes the pulsing recording indicator and animated Studio / Settings page transitions entirely. Recording status is indicated by a static red dot and persistent text. These animations are disabled unconditionally: no special accessibility setting is required. The capture preview continues showing the selected display or window (external video/game content can still flash). A static safety note replaces the motion toggle in Settings.
+
+## Alpha.25 — recording reliability capstone
+
+- Automatic, collision-safe MP4 naming: existing `recording.mp4` remains untouched and new sessions use `recording (1).mp4`, `recording (2).mp4`, and so on (up to 9,999 attempts).
+- Preflight free-disk-space check: at least 512 MiB plus about ten minutes of configured video bitrate before starting new MP4 recordings; this is an estimate rather than a guaranteed available duration.
+- Session history: successful and failed recording/stream sessions are appended to `%APPDATA%\\LiteSR\\sessions.tsv` with time, source, resolution, target FPS, encoder and exit code. Stream destination and secret key are never logged in history.
+- Stop/finalize is idempotent: repeated button presses do not send repeated FFmpeg stop commands. The GUI remains responsive while FFmpeg finishes.
+- CI validates that the bundled FFmpeg can encode and probe a synthetic MP4 containing H.264 video and AAC audio, as well as building the Windows application and installer.
+- Photosensitivity safety: no pulsing, flashing or page-slide animations were restored.
+
+These tests do not establish real-world screen-capture FPS or prove microphone device compatibility. Session history is plain text under the user's profile; delete it when no longer wanted.
