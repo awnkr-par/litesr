@@ -314,7 +314,7 @@ static void refresh(){
 static void stop(){
  if(stopRequested||!stdinPipe)return;
  stopRequested=true;stopRequestedAt=GetTickCount64();
- DWORD written=0;WriteFile(stdinPipe,"q\\n",2,&written,nullptr);
+ DWORD written=0;WriteFile(stdinPipe,"q\n",2,&written,nullptr);
  setStatus(L"Finishing recording/stream... Please wait.");
 }
 static std::wstring quote(const std::wstring& input){
