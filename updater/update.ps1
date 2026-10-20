@@ -2,7 +2,7 @@ param(
  [ValidateSet('stable','beta')][string]$Channel = 'beta',
  [switch]$Manual,
  [int]$ParentPid = 0,
- [string]$CurrentVersion = '0.2.0-alpha.23',
+ [string]$CurrentVersion = '0.2.0-alpha.24',
  [switch]$SelfTest
 )
 $ErrorActionPreference = 'Stop'
@@ -29,8 +29,8 @@ function VersionKey([string]$tag) {
 if ($SelfTest) {
  $cases=@(
   @{a='v0.2.0-alpha.9';b='v0.2.0-alpha.10'},
-  @{a='v0.2.0-alpha.22';b='v0.2.0-alpha.23'},
-  @{a='v0.2.0-alpha.23';b='v0.2.0-beta.1'},
+  @{a='v0.2.0-alpha.22';b='v0.2.0-alpha.24'},
+  @{a='v0.2.0-alpha.24';b='v0.2.0-beta.1'},
   @{a='v0.2.0-beta.1';b='v0.2.0'},
   @{a='v0.2.0';b='v0.2.1-alpha.1'}
  )
