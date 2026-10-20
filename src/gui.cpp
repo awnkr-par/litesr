@@ -30,9 +30,7 @@ static bool layoutReady=false;
 static HWND settingsWindow{},settingsServer{},settingsResolution{},settingsFps{},settingsBitrate{},settingsEncoder{},settingsBackend{},settingsContrast{},settingsLargeText{},settingsReducedPreview{};
 static bool highContrast=false,largeText=false,reducedPreview=false,reduceMotion=false;
 static HWND settingsReduceMotion{};
-static int transitionFrame=0,transitionDirection=1;
-static bool pageAnimating=false;
-static int pulseFrame=0;
+
 static HFONT largeFont{};
 static void showSettings();
 static std::vector<HWND> studioPage,settingsPage;
@@ -67,7 +65,7 @@ static ULONGLONG captureStarted=0;
 static HWND previewButton{}, sessionInfo{};
 static std::wstring selectedCaptureLabel;
 static int selectedCaptureMode=0;
-static const wchar_t* buildVersion=L"0.2.0-alpha.23";
+static const wchar_t* buildVersion=L"0.2.0-alpha.24";
 static void layoutWorkspace(){
  if(!root||!layoutReady)return;
  RECT client{};GetClientRect(root,&client);
@@ -78,9 +76,7 @@ static void layoutWorkspace(){
  for(const auto& entry:uiPositions){
   const RECT& b=entry.bounds;
   int left=(int)(b.left*x),top=(int)(b.top*y);
-  if(pageAnimating){bool inPage=std::find((settingsVisible?settingsPage:studioPage).begin(),(settingsVisible?settingsPage:studioPage).end(),entry.h)!=(settingsVisible?settingsPage:studioPage).end();
-   if(inPage){int remaining=12-transitionFrame;left+=transitionDirection*(remaining*remaining)*(int)(client.right-client.left)/720;}
-  }
+
   int width=std::max(1,(int)((b.right-b.left)*x));
   int height=std::max(1,(int)((b.bottom-b.top)*y));
   batch=DeferWindowPos(batch,entry.h,nullptr,left,top,width,height,SWP_NOZORDER|SWP_NOACTIVATE);
@@ -443,10 +439,10 @@ static void saveSettingsFromWindow(){
  highContrast=SendMessageW(settingsContrast,BM_GETCHECK,0,0)==BST_CHECKED;
  largeText=SendMessageW(settingsLargeText,BM_GETCHECK,0,0)==BST_CHECKED;
  reducedPreview=SendMessageW(settingsReducedPreview,BM_GETCHECK,0,0)==BST_CHECKED;
- reduceMotion=SendMessageW(settingsReduceMotion,BM_GETCHECK,0,0)==BST_CHECKED;
+ reduceMotion=true;
  save();applyTheme();SetTimer(root,1,reducedPreview?2500:1000,nullptr);
  settingsVisible=false;
- pageAnimating=!reduceMotion;transitionFrame=0;transitionDirection=-1;if(pageAnimating)SetTimer(root,3,16,nullptr);
+
  for(HWND h:settingsPage)ShowWindow(h,SW_HIDE);
  for(HWND h:studioPage)if(h&&h!=updates)ShowWindow(h,SW_SHOW);
  // Technical controls are still backing state, but never shown in Studio.
@@ -457,7 +453,7 @@ static void saveSettingsFromWindow(){
 static void showSettings(){
  if(settingsVisible)return;
  settingsVisible=true;
- pageAnimating=!reduceMotion;transitionFrame=0;transitionDirection=1;if(pageAnimating)SetTimer(root,3,16,nullptr);
+
  for(HWND h:studioPage)ShowWindow(h,SW_HIDE);
  if(settingsPage.empty()){
   settingsBack=settingsAdd(L"BUTTON",L"Back to Studio",BS_PUSHBUTTON,28,19,195,39,102);
@@ -479,7 +475,7 @@ static void showSettings(){
   settingsContrast=settingsAdd(L"BUTTON",L"High-contrast colors",BS_AUTOCHECKBOX,63,479,720,35);
   settingsLargeText=settingsAdd(L"BUTTON",L"Larger user interface text",BS_AUTOCHECKBOX,63,534,720,35);
   settingsReducedPreview=settingsAdd(L"BUTTON",L"Reduce preview refresh rate to save CPU",BS_AUTOCHECKBOX,63,589,900,35);
-  settingsReduceMotion=settingsAdd(L"BUTTON",L"Reduce motion (disable page and recording animations)",BS_AUTOCHECKBOX,63,640,980,35);
+  settingsReduceMotion=settingsAdd(L"STATIC",L"Animations are disabled for safety. Recording indicators remain steady.",0,63,640,980,35);
   settingsAdd(L"STATIC",L"Changes apply to the next recording. Stream keys are not stored.",0,58,708,1000,31);
   settingsAdd(L"BUTTON",L"View updater log",BS_PUSHBUTTON,58,758,245,48,13);
   settingsAdd(L"BUTTON",L"Save settings",BS_PUSHBUTTON,873,758,250,48,101);
@@ -491,7 +487,7 @@ static void showSettings(){
  SendMessageW(settingsContrast,BM_SETCHECK,highContrast?BST_CHECKED:BST_UNCHECKED,0);
  SendMessageW(settingsLargeText,BM_SETCHECK,largeText?BST_CHECKED:BST_UNCHECKED,0);
  SendMessageW(settingsReducedPreview,BM_SETCHECK,reducedPreview?BST_CHECKED:BST_UNCHECKED,0);
- SendMessageW(settingsReduceMotion,BM_SETCHECK,reduceMotion?BST_CHECKED:BST_UNCHECKED,0);
+
  for(HWND h:settingsPage)ShowWindow(h,SW_SHOW);
  layoutWorkspace();InvalidateRect(root,nullptr,TRUE);
 }
@@ -563,7 +559,7 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   select(resolution,loadIndex(L"resolution",1,3));select(fps,loadIndex(L"fps",0,2));
   SetWindowTextW(bitrate,load(L"bitrate",L"3000").c_str());
   select(encoder,loadIndex(L"encoder",0,2));select(updates,0);
-  highContrast=load(L"highContrast",L"0")==L"1";largeText=load(L"largeText",L"0")==L"1";reducedPreview=load(L"reducedPreview",L"0")==L"1";reduceMotion=load(L"reduceMotion",L"0")==L"1";applyTheme();
+  highContrast=load(L"highContrast",L"0")==L"1";largeText=load(L"largeText",L"0")==L"1";reducedPreview=load(L"reducedPreview",L"0")==L"1";reduceMotion=true;applyTheme();
   selectedCaptureLabel=load(L"sourceName",L"");previewEnabled=load(L"preview",L"1")!=L"0";
   SetWindowTextW(previewButton,previewEnabled?L"Preview: ON":L"Preview: OFF");
   select(captureBackend,loadIndex(L"backend",0,2));
@@ -576,7 +572,7 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
    int x=entry.bounds.left,y=entry.bounds.top;
    if((x>=920&&((y==187||y==210)||(y>=372&&y<=555)))||(x==530&&y==58))ShowWindow(entry.h,SW_HIDE);
   }
-  layoutReady=true;layoutWorkspace();SetTimer(h,4,90,nullptr);
+  layoutReady=true;layoutWorkspace();
   SetTimer(h,1,reducedPreview?2500:1000,nullptr);SetTimer(h,2,3500,nullptr);refresh();return 0;
  }
  case WM_SIZE:if(layoutReady&&w!=SIZE_MINIMIZED)layoutWorkspace();return 0;
@@ -588,8 +584,7 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   FillRect(dc,&previewArea,bg);DeleteObject(bg);
   if(process.hProcess){
    RECT dot={previewArea.left+14,previewArea.top+14,previewArea.left+28,previewArea.top+28};
-   bool lit=reduceMotion||pulseFrame<12;
-   HBRUSH red=CreateSolidBrush(lit?RGB(239,65,78):RGB(105,40,52));HGDIOBJ old=SelectObject(dc,red);
+   HBRUSH red=CreateSolidBrush(RGB(239,65,78));HGDIOBJ old=SelectObject(dc,red);
    Ellipse(dc,dot.left,dot.top,dot.right,dot.bottom);SelectObject(dc,old);DeleteObject(red);
   }
   int selectedIndex=sourceChoice?selection(sourceChoice):-1;
@@ -675,7 +670,7 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
  case WM_COMMAND:
   if(LOWORD(w)==13){std::wstring p=cfg();p=p.substr(0,p.find_last_of(L"\\/")+1)+L"updater.log";if(GetFileAttributesW(p.c_str())==INVALID_FILE_ATTRIBUTES)MessageBoxW(root,L"No updater log yet. Run Check updates first.",L"LiteSR",MB_OK);else ShellExecuteW(root,L"open",p.c_str(),nullptr,nullptr,SW_SHOWNORMAL);return 0;}
   if(LOWORD(w)==101){saveSettingsFromWindow();return 0;}
-  if(LOWORD(w)==102){settingsVisible=false;pageAnimating=!reduceMotion;transitionFrame=0;transitionDirection=-1;if(pageAnimating)SetTimer(root,3,16,nullptr);for(HWND v:settingsPage)ShowWindow(v,SW_HIDE);for(HWND v:studioPage)if(v&&v!=updates)ShowWindow(v,SW_SHOW);for(HWND v:{server,resolution,fps,bitrate,encoder,captureBackend,updates})ShowWindow(v,SW_HIDE);InvalidateRect(root,nullptr,TRUE);return 0;}
+  if(LOWORD(w)==102){settingsVisible=false;for(HWND v:settingsPage)ShowWindow(v,SW_HIDE);for(HWND v:studioPage)if(v&&v!=updates)ShowWindow(v,SW_SHOW);for(HWND v:{server,resolution,fps,bitrate,encoder,captureBackend,updates})ShowWindow(v,SW_HIDE);InvalidateRect(root,nullptr,TRUE);return 0;}
   if(LOWORD(w)==1)start();
   if(LOWORD(w)==2)stop();
   if(LOWORD(w)==3)checkUpdates(true);
@@ -694,8 +689,6 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   if((HWND)l==service&&HIWORD(w)==CBN_SELCHANGE)serviceChanged();
   return 0;
  case WM_TIMER:
-  if(w==3){transitionFrame++;if(transitionFrame>=12){pageAnimating=false;KillTimer(h,3);}layoutWorkspace();return 0;}
-  if(w==4){pulseFrame=(pulseFrame+1)%20;if(process.hProcess&&!reduceMotion&&!settingsVisible){RECT indicator=previewArea;indicator.right=indicator.left+45;indicator.bottom=indicator.top+44;InvalidateRect(h,&indicator,FALSE);}return 0;}
   if(w==1){
    auto marker=cfg();marker=marker.substr(0,marker.find_last_of(L"\\/")+1)+L"update-ready.flag";
    if(GetFileAttributesW(marker.c_str())!=INVALID_FILE_ATTRIBUTES){
@@ -722,7 +715,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,LPWSTR,int show){
  WNDCLASSW wc{};wc.hInstance=instance;wc.lpfnWndProc=wnd;wc.lpszClassName=L"LiteSRMain";
  wc.hbrBackground=(HBRUSH)(COLOR_WINDOW+1);wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);
  RegisterClassW(&wc);
- HWND h=CreateWindowExW(0,L"LiteSRMain",L"LiteSR v0.2.0-alpha.23",WS_OVERLAPPEDWINDOW,
+ HWND h=CreateWindowExW(0,L"LiteSRMain",L"LiteSR v0.2.0-alpha.24",WS_OVERLAPPEDWINDOW,
  CW_USEDEFAULT,CW_USEDEFAULT,1260,925,nullptr,nullptr,instance,nullptr);
  ShowWindow(h,show);MSG msg;
  while(GetMessageW(&msg,nullptr,0,0)>0){TranslateMessage(&msg);DispatchMessageW(&msg);}
