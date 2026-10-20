@@ -12,8 +12,10 @@ $logFile = Join-Path $logDir 'updater.log'
 function Log([string]$message) {
  Add-Content -LiteralPath $logFile -Value ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + ' ' + $message) -Encoding UTF8
 }
-Log "Updater started version=$CurrentVersion manual=$Manual parent=$ParentPid" 
-Add-Type -AssemblyName System.Windows.Forms
+if (-not $SelfTest) {
+ Log "Updater started version=$CurrentVersion manual=$Manual parent=$ParentPid"
+ Add-Type -AssemblyName System.Windows.Forms
+}
 function Notify([string]$message) {
  if ($Manual) { [void][System.Windows.Forms.MessageBox]::Show($message,'LiteSR Updates','OK','Information') }
 }
