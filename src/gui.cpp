@@ -57,6 +57,12 @@ static std::wstring activeOutput;
 static HWND diskInfo{},browseButton{},openFolderButton{},qualityPreset{};
 static std::vector<std::wstring> microphoneDevices;
 static HWND audioRefreshButton{};
+static bool stopRequested=false;
+static ULONGLONG stopRequestedAt=0;
+static std::wstring sessionStartedAt;
+static std::wstring sessionBackend,sessionEncoder,sessionSource;
+static int sessionResolution=0,sessionTargetFPS=0;
+static HWND historyButton{};
 static HWND captureBackend{},captureHealth{};
 static std::wstring progressPath;
 static int requestedFPS=30;
@@ -65,7 +71,7 @@ static ULONGLONG captureStarted=0;
 static HWND previewButton{}, sessionInfo{};
 static std::wstring selectedCaptureLabel;
 static int selectedCaptureMode=0;
-static const wchar_t* buildVersion=L"0.2.0-alpha.24";
+static const wchar_t* buildVersion=L"0.2.0-alpha.25";
 static void layoutWorkspace(){
  if(!root||!layoutReady)return;
  RECT client{};GetClientRect(root,&client);
@@ -211,6 +217,52 @@ static void applyPreset(){
  if(p>=0&&p<3){select(resolution,resolutions[p]);select(fps,0);SetWindowTextW(bitrate,rates[p]);save();}
 }
 static void setStatus(const wchar_t* s){SetWindowTextW(state,s);}
+static std::wstring sessionHistoryPath(){
+ std::wstring path=cfg();
+ return path.substr(0,path.find_last_of(L"\\/")+1)+L"sessions.tsv";
+}
+static std::wstring cleanedField(std::wstring value){
+ for(wchar_t& c:value)if(c==L'\t'||c==L'\r'||c==L'\n')c=L' ';
+ return value;
+}
+static std::wstring newRecordingName(const std::wstring& input){
+ if(GetFileAttributesW(input.c_str())==INVALID_FILE_ATTRIBUTES)return input;
+ size_t dot=input.find_last_of(L'.'),slash=input.find_last_of(L"\\/");
+ if(dot==std::wstring::npos||(slash!=std::wstring::npos&&dot<slash))dot=input.size();
+ for(int n=1;n<=9999;++n){
+  std::wstring candidate=input.substr(0,dot)+L" ("+std::to_wstring(n)+L")"+input.substr(dot);
+  if(GetFileAttributesW(candidate.c_str())==INVALID_FILE_ATTRIBUTES)return candidate;
+ }
+ return L"";
+}
+static void recordSession(DWORD code){
+ if(sessionStartedAt.empty())return;
+ std::wofstream out(sessionHistoryPath(),std::ios::app);
+ if(out){
+  out<<cleanedField(sessionStartedAt)<<L"\t"
+     <<(captureStreaming?L"STREAM":L"RECORD")<<L"\t"
+     <<(code==0?L"SUCCESS":L"FAILED")<<L"\t"
+     <<code<<L"\t"<<cleanedField(sessionSource)<<L"\t"
+     <<sessionResolution<<L"p\t"<<sessionTargetFPS<<L"fps\t"
+     <<cleanedField(sessionBackend)<<L"\t"<<cleanedField(sessionEncoder)<<L"\t"
+     <<(captureStreaming?L"(stream destination hidden)":cleanedField(activeOutput))<<L"\n";
+ }
+ sessionStartedAt.clear();
+}
+static bool diskReady(const std::wstring& output,int kbps){
+ size_t slash=output.find_last_of(L"\\/");
+ std::wstring folder=slash==std::wstring::npos?recordingsFolder():output.substr(0,slash);
+ ULARGE_INTEGER available{};
+ if(!GetDiskFreeSpaceExW(folder.c_str(),&available,nullptr,nullptr)){
+  MessageBoxW(root,L"Recording folder is unavailable or not writable.",L"LiteSR",MB_ICONWARNING);return false;
+ }
+ // 512 MiB emergency headroom, plus ten minutes of expected video at configured bitrate.
+ unsigned long long required=512ULL*1024*1024+(unsigned long long)kbps*1000*600/8;
+ if(available.QuadPart<required){
+  MessageBoxW(root,L"Not enough free space for a safe recording start. Free disk space or choose a different destination.",L"LiteSR",MB_ICONWARNING);return false;
+ }
+ return true;
+}
 static void readCaptureHealth(){
  if(!captureHealth||!process.hProcess||progressPath.empty())return;
  std::ifstream input(progressPath,std::ios::binary);
@@ -237,6 +289,7 @@ static void refresh(){
   CloseHandle(process.hThread);CloseHandle(process.hProcess);process={};
   if(stdinPipe){CloseHandle(stdinPipe);stdinPipe=nullptr;}
   if(logHandle){CloseHandle(logHandle);logHandle=nullptr;}
+  recordSession(exitCode);stopRequested=false;stopRequestedAt=0;
   captureStarted=0;
   if(captureHealth)SetWindowTextW(captureHealth,L"Capture stopped - check log for results.");
   if(!captureStreaming && !activeOutput.empty() && exitCode==0){
@@ -256,10 +309,13 @@ static void refresh(){
   std::wstring info=std::wstring(captureStreaming?L"LIVE  |  ":L"RECORDING  |  ")+std::to_wstring(sec/3600)+L"h "+std::to_wstring((sec/60)%60)+L"m "+std::to_wstring(sec%60)+L"s  |  F10 to stop";
   if(sessionInfo)SetWindowTextW(sessionInfo,info.c_str());
  }else if(sessionInfo)SetWindowTextW(sessionInfo,L"IDLE  |  F9 start  /  F10 stop");
- EnableWindow(startButton,!busy);EnableWindow(stopButton,busy);
+ EnableWindow(startButton,!busy);EnableWindow(stopButton,busy&&!stopRequested);
 }
 static void stop(){
- if(stdinPipe){DWORD written=0;WriteFile(stdinPipe,"q\n",2,&written,nullptr);setStatus(L"Finishing recording/stream...");}
+ if(stopRequested||!stdinPipe)return;
+ stopRequested=true;stopRequestedAt=GetTickCount64();
+ DWORD written=0;WriteFile(stdinPipe,"q\\n",2,&written,nullptr);
+ setStatus(L"Finishing recording/stream... Please wait.");
 }
 static std::wstring quote(const std::wstring& input){
  std::wstring out=L"\"";int slashes=0;
@@ -336,7 +392,10 @@ static void start(){
  }else{
   dest=get(fileName);
   if(dest.empty()){MessageBoxW(root,L"Enter a recording filename.",L"LiteSR",MB_ICONWARNING);return;}
-  if(GetFileAttributesW(dest.c_str())!=INVALID_FILE_ATTRIBUTES){MessageBoxW(root,L"Recording already exists. Choose another filename so it is not overwritten.",L"LiteSR",MB_ICONWARNING);return;}
+  dest=newRecordingName(dest);
+  if(dest.empty()){MessageBoxW(root,L"Could not find an unused recording filename.",L"LiteSR",MB_ICONWARNING);return;}
+  if(!diskReady(dest,rate))return;
+  SetWindowTextW(fileName,dest.c_str());
  }
  if(dest.find(L'"')!=std::wstring::npos||dest.find(L'\n')!=std::wstring::npos){
   MessageBoxW(root,L"Invalid quotes or newline in destination.",L"LiteSR",MB_ICONWARNING);return;
@@ -400,7 +459,11 @@ static void start(){
  BOOL ok=CreateProcessW(ff.c_str(),buffer.data(),nullptr,nullptr,TRUE,CREATE_NO_WINDOW,nullptr,nullptr,&si,&process);
  CloseHandle(read);
  if(!ok){CloseHandle(write);if(logHandle){CloseHandle(logHandle);logHandle=nullptr;}process={};setStatus(L"Failed launching FFmpeg.");return;}
- stdinPipe=write;activeOutput=isStreaming?L"":dest;captureStarted=GetTickCount64();captureStreaming=isStreaming;save();setStatus(isStreaming?L"Stream launched. Confirm live signal on platform.":L"Recording started.");refresh();
+ stdinPipe=write;stopRequested=false;stopRequestedAt=0;
+ activeOutput=isStreaming?L"":dest;captureStarted=GetTickCount64();captureStreaming=isStreaming;
+ {SYSTEMTIME now{};GetLocalTime(&now);wchar_t when[48]{};swprintf_s(when,48,L"%04d-%02d-%02d %02d:%02d:%02d",now.wYear,now.wMonth,now.wDay,now.wHour,now.wMinute,now.wSecond);sessionStartedAt=when;}
+ sessionSource=selected.label;sessionBackend=usingDDA?L"Desktop Duplication":L"GDI";sessionEncoder=selection(encoder)==0?L"Intel QSV":L"x264";sessionResolution=heights[r];sessionTargetFPS=fr;
+ save();setStatus(isStreaming?L"Stream launched. Confirm live signal on platform.":L"Recording started.");refresh();
 }
 static ULONGLONG lastUpdateCheck=0;
 static void checkUpdates(bool manual){
@@ -544,6 +607,7 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   ShowWindow(updates,SW_HIDE);
   add(L"BUTTON",L"Check updates",BS_PUSHBUTTON,1071,737,153,32,3);
   add(L"BUTTON",L"View FFmpeg log",BS_PUSHBUTTON,906,779,152,32,5);
+  historyButton=add(L"BUTTON",L"Session history",BS_PUSHBUTTON,906,822,152,31,14);
   openFolderButton=add(L"BUTTON",L"Open recordings",BS_PUSHBUTTON,1070,779,152,32,9);
   diskInfo=add(L"STATIC",L"Free disk: checking",0,580,791,307,27);
   captureHealth=add(L"STATIC",L"ENCODE FPS: waiting for capture",0,28,791,530,27);
@@ -668,6 +732,7 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   if(w==91&&!process.hProcess)start();
   if(w==92&&process.hProcess)stop();return 0;
  case WM_COMMAND:
+  if(LOWORD(w)==14){auto p=sessionHistoryPath();if(GetFileAttributesW(p.c_str())==INVALID_FILE_ATTRIBUTES)MessageBoxW(root,L"No sessions have finished yet.",L"Session history",MB_OK);else ShellExecuteW(root,L"open",p.c_str(),nullptr,nullptr,SW_SHOWNORMAL);return 0;}
   if(LOWORD(w)==13){std::wstring p=cfg();p=p.substr(0,p.find_last_of(L"\\/")+1)+L"updater.log";if(GetFileAttributesW(p.c_str())==INVALID_FILE_ATTRIBUTES)MessageBoxW(root,L"No updater log yet. Run Check updates first.",L"LiteSR",MB_OK);else ShellExecuteW(root,L"open",p.c_str(),nullptr,nullptr,SW_SHOWNORMAL);return 0;}
   if(LOWORD(w)==101){saveSettingsFromWindow();return 0;}
   if(LOWORD(w)==102){settingsVisible=false;for(HWND v:settingsPage)ShowWindow(v,SW_HIDE);for(HWND v:studioPage)if(v&&v!=updates)ShowWindow(v,SW_SHOW);for(HWND v:{server,resolution,fps,bitrate,encoder,captureBackend,updates})ShowWindow(v,SW_HIDE);InvalidateRect(root,nullptr,TRUE);return 0;}
@@ -715,7 +780,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,LPWSTR,int show){
  WNDCLASSW wc{};wc.hInstance=instance;wc.lpfnWndProc=wnd;wc.lpszClassName=L"LiteSRMain";
  wc.hbrBackground=(HBRUSH)(COLOR_WINDOW+1);wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);
  RegisterClassW(&wc);
- HWND h=CreateWindowExW(0,L"LiteSRMain",L"LiteSR v0.2.0-alpha.24",WS_OVERLAPPEDWINDOW,
+ HWND h=CreateWindowExW(0,L"LiteSRMain",L"LiteSR v0.2.0-alpha.25",WS_OVERLAPPEDWINDOW,
  CW_USEDEFAULT,CW_USEDEFAULT,1260,925,nullptr,nullptr,instance,nullptr);
  ShowWindow(h,show);MSG msg;
  while(GetMessageW(&msg,nullptr,0,0)>0){TranslateMessage(&msg);DispatchMessageW(&msg);}
