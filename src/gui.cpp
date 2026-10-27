@@ -75,7 +75,7 @@ static ULONGLONG captureStarted=0;
 static HWND previewButton{}, sessionInfo{};
 static std::wstring selectedCaptureLabel;
 static int selectedCaptureMode=0;
-static const wchar_t* buildVersion=L"0.2.0-alpha.26";
+static const wchar_t* buildVersion=L"0.2.0-alpha.27";
 static void layoutWorkspace(){
  if(!root||!layoutReady)return;
  RECT client{};GetClientRect(root,&client);
@@ -589,15 +589,10 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   add(L"STATIC",L"Recording filename",0,929,317,280,22);
   fileName=add(L"EDIT",L"recording.mp4",WS_BORDER|ES_AUTOHSCROLL,928,341,222,28);
   browseButton=add(L"BUTTON",L"Browse",BS_PUSHBUTTON,1157,341,71,28,8);
-  add(L"STATIC",L"QUALITY PRESET",0,929,377,120,22);
   qualityPreset=combo(1051,372,177,{L"Low impact",L"Balanced",L"High quality"},1);
-  add(L"STATIC",L"Resolution",0,929,418,120,22);
   resolution=combo(1045,412,183,{L"480p 854x480",L"720p 1280x720",L"1080p 1920x1080"},1);
-  add(L"STATIC",L"FPS",0,929,458,100,22);
   fps=combo(1045,451,183,{L"30 FPS",L"60 FPS"});
-  add(L"STATIC",L"Bitrate kbps",0,929,491,130,22);
   bitrate=add(L"EDIT",L"3000",WS_BORDER|ES_NUMBER,1045,488,183,27);
-  add(L"STATIC",L"Encoder",0,929,532,120,22);
   encoder=combo(1045,528,183,{L"Intel Quick Sync",L"CPU x264"});
   add(L"STATIC",L"SCENES",0,28,585,192,26);
   add(L"STATIC",L"Main scene",0,30,630,194,26);
@@ -796,7 +791,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,LPWSTR,int show){
  WNDCLASSW wc{};wc.hInstance=instance;wc.lpfnWndProc=wnd;wc.lpszClassName=L"LiteSRMain";
  wc.hbrBackground=(HBRUSH)(COLOR_WINDOW+1);wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);
  RegisterClassW(&wc);
- HWND h=CreateWindowExW(0,L"LiteSRMain",L"LiteSR v0.2.0-alpha.26",WS_OVERLAPPEDWINDOW,
+ HWND h=CreateWindowExW(0,L"LiteSRMain",L"LiteSR v0.2.0-alpha.27",WS_OVERLAPPEDWINDOW,
  CW_USEDEFAULT,CW_USEDEFAULT,1260,925,nullptr,nullptr,instance,nullptr);
  ShowWindow(h,show);MSG msg;
  while(GetMessageW(&msg,nullptr,0,0)>0){TranslateMessage(&msg);DispatchMessageW(&msg);}
