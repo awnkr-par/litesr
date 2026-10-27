@@ -28,7 +28,11 @@ struct UiPosition{HWND h;RECT bounds;};
 static std::vector<UiPosition> uiPositions;
 static bool layoutReady=false;
 static HWND settingsWindow{},settingsServer{},settingsResolution{},settingsFps{},settingsBitrate{},settingsEncoder{},settingsBackend{},settingsContrast{},settingsLargeText{},settingsReducedPreview{};
-static bool highContrast=false,largeText=false,reducedPreview=false,reduceMotion=false;
+static bool highContrast=false,largeText=false,reducedPreview=false,reduceMotion=true;
+static bool gentleAnimations=false;
+static HWND settingsAnimations{};
+static int navigationStep=0;
+static bool navigationAnimating=false;
 static HWND settingsReduceMotion{};
 
 static HFONT largeFont{};
@@ -71,7 +75,7 @@ static ULONGLONG captureStarted=0;
 static HWND previewButton{}, sessionInfo{};
 static std::wstring selectedCaptureLabel;
 static int selectedCaptureMode=0;
-static const wchar_t* buildVersion=L"0.2.0-alpha.25";
+static const wchar_t* buildVersion=L"0.2.0-alpha.26";
 static void layoutWorkspace(){
  if(!root||!layoutReady)return;
  RECT client{};GetClientRect(root,&client);
@@ -151,7 +155,7 @@ static void save(){
  put(L"bitrate",get(bitrate));put(L"encoder",std::to_wstring(selection(encoder)));
  put(L"theme",darkMode?L"dark":L"light");
  put(L"backend",std::to_wstring(selection(captureBackend)));
- put(L"reduceMotion",reduceMotion?L"1":L"0");
+ put(L"reduceMotion",L"1");put(L"gentleAnimations",gentleAnimations?L"1":L"0");
  put(L"highContrast",highContrast?L"1":L"0");put(L"largeText",largeText?L"1":L"0");put(L"reducedPreview",reducedPreview?L"1":L"0");
  put(L"sourceMode",std::to_wstring(selection(sourceMode)));
  put(L"sourceName",selectedCaptureLabel);
@@ -437,12 +441,15 @@ static void start(){
  if(mic||isStreaming)args.insert(args.end(),{L"-map",usingDDA?L"0:a:0":L"1:a:0"});
  else args.push_back(L"-an");
  args.insert(args.end(),{L"-vf",L"scale="+std::to_wstring(widths[r])+L":"+std::to_wstring(heights[r])+L",format=nv12"});
- if(selection(encoder)==0)args.insert(args.end(),{L"-c:v",L"h264_qsv",L"-preset",L"veryfast"});
+ if(selection(encoder)==0&&!isStreaming)args.insert(args.end(),{L"-c:v",L"h264_qsv",L"-preset",L"veryfast"});
  else args.insert(args.end(),{L"-c:v",L"libx264",L"-preset",L"ultrafast",L"-tune",L"zerolatency"});
  args.insert(args.end(),{L"-b:v",std::to_wstring(rate)+L"k",L"-maxrate",std::to_wstring(rate)+L"k",
   L"-bufsize",std::to_wstring(rate*2)+L"k",L"-g",std::to_wstring(fr*2)});
  if(mic||isStreaming)args.insert(args.end(),{L"-c:a",L"aac",L"-b:a",L"128k",L"-ar",L"44100"});
- if(isStreaming)args.insert(args.end(),{L"-f",L"flv",dest});
+ if(isStreaming){
+  // FLV/RTMP compatibility defaults and low-latency network I/O.
+  args.insert(args.end(),{L"-pix_fmt",L"yuv420p",L"-flvflags",L"no_duration_filesize",L"-f",L"flv",dest});
+ }
  else args.insert(args.end(),{L"-n",L"-movflags",L"+faststart",dest});
  std::wstring cmd;
  for(const auto& a:args){if(!cmd.empty())cmd+=L" ";cmd+=quote(a);}
@@ -503,9 +510,10 @@ static void saveSettingsFromWindow(){
  largeText=SendMessageW(settingsLargeText,BM_GETCHECK,0,0)==BST_CHECKED;
  reducedPreview=SendMessageW(settingsReducedPreview,BM_GETCHECK,0,0)==BST_CHECKED;
  reduceMotion=true;
+ gentleAnimations=SendMessageW(settingsAnimations,BM_GETCHECK,0,0)==BST_CHECKED;
  save();applyTheme();SetTimer(root,1,reducedPreview?2500:1000,nullptr);
  settingsVisible=false;
-
+ navigationStep=0;navigationAnimating=gentleAnimations;if(navigationAnimating)SetTimer(root,3,38,nullptr);
  for(HWND h:settingsPage)ShowWindow(h,SW_HIDE);
  for(HWND h:studioPage)if(h&&h!=updates)ShowWindow(h,SW_SHOW);
  // Technical controls are still backing state, but never shown in Studio.
@@ -516,6 +524,7 @@ static void saveSettingsFromWindow(){
 static void showSettings(){
  if(settingsVisible)return;
  settingsVisible=true;
+ navigationStep=0;navigationAnimating=gentleAnimations;if(navigationAnimating)SetTimer(root,3,38,nullptr);
 
  for(HWND h:studioPage)ShowWindow(h,SW_HIDE);
  if(settingsPage.empty()){
@@ -538,7 +547,7 @@ static void showSettings(){
   settingsContrast=settingsAdd(L"BUTTON",L"High-contrast colors",BS_AUTOCHECKBOX,63,479,720,35);
   settingsLargeText=settingsAdd(L"BUTTON",L"Larger user interface text",BS_AUTOCHECKBOX,63,534,720,35);
   settingsReducedPreview=settingsAdd(L"BUTTON",L"Reduce preview refresh rate to save CPU",BS_AUTOCHECKBOX,63,589,900,35);
-  settingsReduceMotion=settingsAdd(L"STATIC",L"Animations are disabled for safety. Recording indicators remain steady.",0,63,640,980,35);
+  settingsAnimations=settingsAdd(L"BUTTON",L"Gentle navigation highlight (no flashing or pulsing)",BS_AUTOCHECKBOX,63,640,980,35);
   settingsAdd(L"STATIC",L"Changes apply to the next recording. Stream keys are not stored.",0,58,708,1000,31);
   settingsAdd(L"BUTTON",L"View updater log",BS_PUSHBUTTON,58,758,245,48,13);
   settingsAdd(L"BUTTON",L"Save settings",BS_PUSHBUTTON,873,758,250,48,101);
@@ -550,6 +559,7 @@ static void showSettings(){
  SendMessageW(settingsContrast,BM_SETCHECK,highContrast?BST_CHECKED:BST_UNCHECKED,0);
  SendMessageW(settingsLargeText,BM_SETCHECK,largeText?BST_CHECKED:BST_UNCHECKED,0);
  SendMessageW(settingsReducedPreview,BM_SETCHECK,reducedPreview?BST_CHECKED:BST_UNCHECKED,0);
+ SendMessageW(settingsAnimations,BM_SETCHECK,gentleAnimations?BST_CHECKED:BST_UNCHECKED,0);
 
  for(HWND h:settingsPage)ShowWindow(h,SW_SHOW);
  layoutWorkspace();InvalidateRect(root,nullptr,TRUE);
@@ -623,7 +633,7 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   select(resolution,loadIndex(L"resolution",1,3));select(fps,loadIndex(L"fps",0,2));
   SetWindowTextW(bitrate,load(L"bitrate",L"3000").c_str());
   select(encoder,loadIndex(L"encoder",0,2));select(updates,0);
-  highContrast=load(L"highContrast",L"0")==L"1";largeText=load(L"largeText",L"0")==L"1";reducedPreview=load(L"reducedPreview",L"0")==L"1";reduceMotion=true;applyTheme();
+  highContrast=load(L"highContrast",L"0")==L"1";largeText=load(L"largeText",L"0")==L"1";reducedPreview=load(L"reducedPreview",L"0")==L"1";reduceMotion=true;gentleAnimations=load(L"gentleAnimations",L"0")==L"1";applyTheme();
   selectedCaptureLabel=load(L"sourceName",L"");previewEnabled=load(L"preview",L"1")!=L"0";
   SetWindowTextW(previewButton,previewEnabled?L"Preview: ON":L"Preview: OFF");
   select(captureBackend,loadIndex(L"backend",0,2));
@@ -643,6 +653,11 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
  case WM_KEYDOWN:if(w==VK_F11){toggleFullscreen();return 0;}if(w==VK_ESCAPE&&fullscreen){toggleFullscreen();return 0;}break;
  case WM_PAINT:{
   PAINTSTRUCT ps{};HDC dc=BeginPaint(h,&ps);
+  if(navigationAnimating||gentleAnimations){RECT client{};GetClientRect(h,&client);RECT bar{0,47,client.right,53};
+   HBRUSH track=CreateSolidBrush(panelColor);FillRect(dc,&bar,track);DeleteObject(track);
+   int end=navigationAnimating?client.right*navigationStep/6:client.right;
+   RECT fill{0,47,end,53};HBRUSH brush=CreateSolidBrush(accent);FillRect(dc,&fill,brush);DeleteObject(brush);
+  }
   if(settingsVisible){EndPaint(h,&ps);return 0;}
   HBRUSH bg=CreateSolidBrush(darkMode?RGB(9,13,22):RGB(218,229,244));
   FillRect(dc,&previewArea,bg);DeleteObject(bg);
@@ -735,7 +750,7 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   if(LOWORD(w)==14){auto p=sessionHistoryPath();if(GetFileAttributesW(p.c_str())==INVALID_FILE_ATTRIBUTES)MessageBoxW(root,L"No sessions have finished yet.",L"Session history",MB_OK);else ShellExecuteW(root,L"open",p.c_str(),nullptr,nullptr,SW_SHOWNORMAL);return 0;}
   if(LOWORD(w)==13){std::wstring p=cfg();p=p.substr(0,p.find_last_of(L"\\/")+1)+L"updater.log";if(GetFileAttributesW(p.c_str())==INVALID_FILE_ATTRIBUTES)MessageBoxW(root,L"No updater log yet. Run Check updates first.",L"LiteSR",MB_OK);else ShellExecuteW(root,L"open",p.c_str(),nullptr,nullptr,SW_SHOWNORMAL);return 0;}
   if(LOWORD(w)==101){saveSettingsFromWindow();return 0;}
-  if(LOWORD(w)==102){settingsVisible=false;for(HWND v:settingsPage)ShowWindow(v,SW_HIDE);for(HWND v:studioPage)if(v&&v!=updates)ShowWindow(v,SW_SHOW);for(HWND v:{server,resolution,fps,bitrate,encoder,captureBackend,updates})ShowWindow(v,SW_HIDE);InvalidateRect(root,nullptr,TRUE);return 0;}
+  if(LOWORD(w)==102){settingsVisible=false;navigationStep=0;navigationAnimating=gentleAnimations;if(navigationAnimating)SetTimer(root,3,38,nullptr);for(HWND v:settingsPage)ShowWindow(v,SW_HIDE);for(HWND v:studioPage)if(v&&v!=updates)ShowWindow(v,SW_SHOW);for(HWND v:{server,resolution,fps,bitrate,encoder,captureBackend,updates})ShowWindow(v,SW_HIDE);InvalidateRect(root,nullptr,TRUE);return 0;}
   if(LOWORD(w)==1)start();
   if(LOWORD(w)==2)stop();
   if(LOWORD(w)==3)checkUpdates(true);
@@ -754,6 +769,7 @@ static LRESULT CALLBACK wnd(HWND h,UINT m,WPARAM w,LPARAM l){
   if((HWND)l==service&&HIWORD(w)==CBN_SELCHANGE)serviceChanged();
   return 0;
  case WM_TIMER:
+  if(w==3){if(++navigationStep>=6){navigationAnimating=false;KillTimer(h,3);}RECT bar{0,0,0,0};GetClientRect(h,&bar);bar.top=47;bar.bottom=53;InvalidateRect(h,&bar,FALSE);return 0;}
   if(w==1){
    auto marker=cfg();marker=marker.substr(0,marker.find_last_of(L"\\/")+1)+L"update-ready.flag";
    if(GetFileAttributesW(marker.c_str())!=INVALID_FILE_ATTRIBUTES){
@@ -780,7 +796,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,LPWSTR,int show){
  WNDCLASSW wc{};wc.hInstance=instance;wc.lpfnWndProc=wnd;wc.lpszClassName=L"LiteSRMain";
  wc.hbrBackground=(HBRUSH)(COLOR_WINDOW+1);wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);
  RegisterClassW(&wc);
- HWND h=CreateWindowExW(0,L"LiteSRMain",L"LiteSR v0.2.0-alpha.25",WS_OVERLAPPEDWINDOW,
+ HWND h=CreateWindowExW(0,L"LiteSRMain",L"LiteSR v0.2.0-alpha.26",WS_OVERLAPPEDWINDOW,
  CW_USEDEFAULT,CW_USEDEFAULT,1260,925,nullptr,nullptr,instance,nullptr);
  ShowWindow(h,show);MSG msg;
  while(GetMessageW(&msg,nullptr,0,0)>0){TranslateMessage(&msg);DispatchMessageW(&msg);}
