@@ -1,6 +1,6 @@
 #define AppVersion GetEnv("LITESR_VERSION")
 #if AppVersion == ""
- #define AppVersion "0.2.0-alpha.27"
+ #define AppVersion "0.2.0-alpha.28"
 #endif
 [Setup]
 AppId={{F7417356-74F3-4EB1-BE66-21234A330226}
@@ -17,6 +17,8 @@ SolidCompression=yes
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 WizardStyle=modern
+SetupIconFile=..\assets\litesr.ico
+UninstallDisplayIcon={app}\LiteSR.exe
 [Files]
 Source: "..\build\Release\LiteSR.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\build\Release\litesr.exe"; DestDir: "{app}"; Flags: ignoreversion
