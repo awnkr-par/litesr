@@ -117,3 +117,6 @@ Removed outdated quality preset, resolution, FPS, bitrate and encoder labels fro
 
 ## Alpha.28: original LiteSR app icon
 The user's original uploaded green LSR logo (no redesign) is bundled as the Windows executable and installer icon. Its ICO is generated directly from `assets/litesr-original.png` by `scripts/make_icon.py`; the compiled executable supplies the desktop shortcut, Start menu and taskbar icon. Windows may cache an old taskbar icon until a shortcut is recreated or Explorer refreshes.
+
+## Alpha.29 validated original icon
+This release packages the user's original logo artwork (unchanged design, only resized for Windows icon resolution) with strict PNG integrity validation and embeds it in the GUI executable and Inno Setup installer.
