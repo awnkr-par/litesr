@@ -75,7 +75,7 @@ static ULONGLONG captureStarted=0;
 static HWND previewButton{}, sessionInfo{};
 static std::wstring selectedCaptureLabel;
 static int selectedCaptureMode=0;
-static const wchar_t* buildVersion=L"0.2.0-alpha.28";
+static const wchar_t* buildVersion=L"0.2.0-alpha.29";
 static void layoutWorkspace(){
  if(!root||!layoutReady)return;
  RECT client{};GetClientRect(root,&client);
@@ -792,7 +792,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,LPWSTR,int show){
  wc.hbrBackground=(HBRUSH)(COLOR_WINDOW+1);wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);
  wc.hIcon=LoadIconW(instance,MAKEINTRESOURCEW(101));
  RegisterClassW(&wc);
- HWND h=CreateWindowExW(0,L"LiteSRMain",L"LiteSR v0.2.0-alpha.28",WS_OVERLAPPEDWINDOW,
+ HWND h=CreateWindowExW(0,L"LiteSRMain",L"LiteSR v0.2.0-alpha.29",WS_OVERLAPPEDWINDOW,
  CW_USEDEFAULT,CW_USEDEFAULT,1260,925,nullptr,nullptr,instance,nullptr);
  SendMessageW(h,WM_SETICON,ICON_BIG,(LPARAM)wc.hIcon);
  SendMessageW(h,WM_SETICON,ICON_SMALL,(LPARAM)wc.hIcon);
