@@ -111,3 +111,6 @@ These tests do not establish real-world screen-capture FPS or prove microphone d
 - RTMP/RTMPS output uses H.264 yuv420p and AAC in FLV with `no_duration_filesize` flags.
 - Release CI includes an additional offline FLV encode + ffprobe check to guard streaming format compatibility. **This is not an authenticated YouTube/Twitch network test**; platform ingest/keys and actual live streaming still require testing on a Windows machine.
 
+
+## Alpha.27 Studio cleanup
+Removed outdated quality preset, resolution, FPS, bitrate and encoder labels from the Studio. All actual recording quality settings remain available under the integrated Settings page. No flashing or pulsing animations were added.
