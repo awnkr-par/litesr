@@ -103,3 +103,11 @@ Removes the pulsing recording indicator and animated Studio / Settings page tran
 - Photosensitivity safety: no pulsing, flashing or page-slide animations were restored.
 
 These tests do not establish real-world screen-capture FPS or prove microphone device compatibility. Session history is plain text under the user's profile; delete it when no longer wanted.
+
+## Alpha.26 — safe navigation and streaming format capstone
+
+- Adds a **disabled-by-default**, short, non-flashing navigation highlight when switching Studio and Settings pages. Enable it in Settings > Accessibility. There is no pulsing recording light and no repeating navigation effect. Existing steady red recording indicator remains unchanged. Please do not enable effects if motion is uncomfortable or may trigger photosensitivity.
+- Live streams use FFmpeg software `libx264` ultrafast + zerolatency instead of relying on old Intel Quick Sync's ability to handle live output. Recording retains the user's selected Intel QSV/x264 encoder. On slower CPUs, users may need 720p30 or 480p30 for streaming.
+- RTMP/RTMPS output uses H.264 yuv420p and AAC in FLV with `no_duration_filesize` flags.
+- Release CI includes an additional offline FLV encode + ffprobe check to guard streaming format compatibility. **This is not an authenticated YouTube/Twitch network test**; platform ingest/keys and actual live streaming still require testing on a Windows machine.
+
