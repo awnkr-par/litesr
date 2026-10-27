@@ -9,6 +9,8 @@ jobs:
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
+      - name: Generate LiteSR icon from original image
+        run: python scripts/make_icon.py
       - name: Configure
         run: cmake -S . -B build -A x64
       - name: Build
@@ -17,4 +19,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: litesr-windows-x64
-          path: build/Release/litesr.exe
+          path: |
+            build/Release/LiteSR.exe
+            build/Release/litesr.exe
