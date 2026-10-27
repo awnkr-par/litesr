@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Version tag (example v0.2.0-alpha.27)
+        description: Version tag (example v0.2.0-alpha.28)
         required: true
-        default: v0.2.0-alpha.27
+        default: v0.2.0-alpha.28
 permissions:
   contents: write
 jobs:
@@ -28,7 +28,7 @@ jobs:
         id: version
         shell: pwsh
         run: |
-          if ($env:GITHUB_REF_TYPE -eq 'tag') { $tag = $env:GITHUB_REF_NAME } elseif ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') { $tag = '${{ inputs.version }}' } else { $tag = 'v0.2.0-alpha.27' }
+          if ($env:GITHUB_REF_TYPE -eq 'tag') { $tag = $env:GITHUB_REF_NAME } elseif ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') { $tag = '${{ inputs.version }}' } else { $tag = 'v0.2.0-alpha.28' }
           if ($tag -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$') { throw "Invalid version" }
           "tag=$tag" >> $env:GITHUB_OUTPUT
           "number=$($tag.Substring(1))" >> $env:GITHUB_OUTPUT
@@ -42,6 +42,9 @@ jobs:
           $tags = gh release list --repo $env:GITHUB_REPOSITORY --limit 100 --json tagName --jq '.[].tagName'
           if ($LASTEXITCODE -ne 0) { throw 'Could not list releases' }
           if ($tags -contains $env:TAG) { "exists=true" >> $env:GITHUB_OUTPUT } else { "exists=false" >> $env:GITHUB_OUTPUT }
+      - name: Generate LiteSR icon from original image
+        if: steps.existing.outputs.exists == 'false'
+        run: python scripts/make_icon.py
       - name: Build Windows application
         if: steps.existing.outputs.exists == 'false'
         run: |
